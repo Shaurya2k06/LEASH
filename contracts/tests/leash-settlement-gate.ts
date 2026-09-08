@@ -29,7 +29,7 @@ const VAULT_ID = new web3.PublicKey(
   "MagicVau1t999999999999999999999999999999999"
 );
 const TEE_VALIDATOR = new web3.PublicKey(
-  process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQCP8tLN7x5v9BSeoFHYWQQ3n3xzo"
+  process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
 const gate =
   process.env.LEASH_SETTLEMENT_TEST === "1" ? describe : describe.skip;
@@ -57,11 +57,27 @@ async function send(
   transaction.recentBlockhash = (
     await provider.connection.getLatestBlockhash()
   ).blockhash;
-  return provider.sendAndConfirm(
-    await provider.wallet.signTransaction(transaction),
-    [],
+  const signed = await provider.wallet.signTransaction(transaction);
+  const signature = await provider.connection.sendRawTransaction(
+    signed.serialize(),
     { skipPreflight: true }
   );
+  const confirmation = await provider.connection.confirmTransaction(
+    signature,
+    "confirmed"
+  );
+  if (confirmation.value.err) {
+    const failed = await provider.connection.getTransaction(signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    throw new Error(
+      `${signature}: ${JSON.stringify(confirmation.value.err)}\n${
+        failed?.meta?.logMessages?.join("\n") || "no logs"
+      }`
+    );
+  }
+  return signature;
 }
 
 async function mustFail(action: Promise<unknown>, message: string) {
@@ -122,15 +138,15 @@ gate("LEASH Magic Action settlement gate", () => {
     const amount = new anchor.BN(50_000);
 
     await verifyTeeRpcIntegrity(teeEndpoint);
-    await send(
-      base,
+    await base.sendAndConfirm(
       new web3.Transaction().add(
         web3.SystemProgram.transfer({
           fromPubkey: controller.publicKey,
           toPubkey: agent.publicKey,
           lamports: 10_000_000,
         })
-      )
+      ),
+      [controller]
     );
 
     const mint = await createMint(
@@ -317,6 +333,16 @@ gate("LEASH Magic Action settlement gate", () => {
           policy,
           session,
           receipt,
+          controller: controller.publicKey,
+        })
+        .transaction()
+    );
+    const settleSignature = await send(
+      controllerEr,
+      await program.methods
+        .commitSettlement()
+        .accountsPartial({
+          receipt,
           terminal,
           controller: controller.publicKey,
           magicContext: MAGIC_CONTEXT_ID,
@@ -339,7 +365,17 @@ gate("LEASH Magic Action settlement gate", () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
-    if (!settled) throw new Error("Magic Action did not settle the receipt");
+    if (!settled) {
+      const scheduled = await controllerEr.connection.getTransaction(
+        settleSignature,
+        { maxSupportedTransactionVersion: 0 }
+      );
+      throw new Error(
+        `Magic Action did not settle the receipt; schedule=${settleSignature}\n${
+          scheduled?.meta?.logMessages?.join("\n") || "no schedule logs"
+        }`
+      );
+    }
 
     await mustFail(
       send(
@@ -415,18 +451,6 @@ gate("LEASH Magic Action settlement gate", () => {
       await program.methods
         .undelegatePolicy()
         .accountsPartial({ payer: controller.publicKey, policy })
-        .transaction()
-    );
-    await send(
-      controllerEr,
-      await program.methods
-        .undelegateReceipt()
-        .accountsPartial({
-          payer: controller.publicKey,
-          receipt,
-          magicContext: MAGIC_CONTEXT_ID,
-          magicProgram: MAGIC_PROGRAM_ID,
-        })
         .transaction()
     );
   });

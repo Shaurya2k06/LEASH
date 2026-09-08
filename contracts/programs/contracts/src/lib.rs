@@ -262,7 +262,15 @@ pub mod contracts {
         receipt.amount = amount;
         receipt.digest = digest;
         receipt.status = ReceiptStatus::Pending;
+        Ok(())
+    }
 
+    pub fn commit_settlement(ctx: Context<CommitSettlement>) -> Result<()> {
+        let receipt = &ctx.accounts.receipt;
+        require!(
+            receipt.status == ReceiptStatus::Pending,
+            ErrorCode::InvalidSettlement
+        );
         let action_accounts = vec![
             ShortAccountMeta {
                 pubkey: receipt.key(),
@@ -303,7 +311,7 @@ pub mod contracts {
             ctx.accounts.magic_context.to_account_info(),
             ctx.accounts.magic_program.to_account_info(),
         )
-        .commit(&[receipt.to_account_info()])
+        .commit_and_undelegate(&[receipt.to_account_info()])
         .add_post_commit_actions([action])
         .build_and_invoke()?;
         Ok(())
@@ -669,10 +677,18 @@ pub struct SettlePermit<'info> {
     pub session: Account<'info, SessionLedger>,
     #[account(mut, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, SettlementReceipt>,
-    #[account(seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    pub controller: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CommitSettlement<'info> {
+    #[account(mut, has_one = controller)]
+    pub receipt: Account<'info, SettlementReceipt>,
+    #[account(seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
     /// CHECK: fixed MagicBlock context account.
+    #[account(mut)]
     pub magic_context: UncheckedAccount<'info>,
     /// CHECK: fixed MagicBlock program.
     #[account(address = MAGIC_PROGRAM_ID)]
