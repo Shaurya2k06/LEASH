@@ -5,6 +5,7 @@ import {
   PERMISSION_PROGRAM_ID,
   getAuthToken,
   permissionPdaFromAccount,
+  verifyTeeRpcIntegrity,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
@@ -46,25 +47,14 @@ async function assertNoRawRead<T>(
   }
 }
 
-async function assertNoSubscription(
-  connection: web3.Connection,
-  address: web3.PublicKey,
-  label: string
+async function assertSecretAbsent(
+  label: string,
+  read: () => Promise<web3.AccountInfo<Buffer> | null>,
+  secret: Buffer
 ) {
-  let subscriptionId: number | undefined;
-  try {
-    subscriptionId = await connection.onAccountChange(
-      address,
-      () => undefined,
-      "confirmed"
-    );
-    throw new Error(`${label} opened`);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("opened")) throw error;
-  } finally {
-    if (subscriptionId !== undefined)
-      await connection.removeAccountChangeListener(subscriptionId);
-  }
+  const account = await read();
+  if (account?.data.indexOf(secret) >= 0)
+    throw new Error(`${label} returned the probe secret`);
 }
 
 const gate = process.env.BLACKOUT_PER_TEST === "1" ? describe : describe.skip;
@@ -101,7 +91,11 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
     const validator = new web3.PublicKey(TEE_VALIDATOR);
     let delegated = false;
     let permissionCreated = false;
+    let unauthenticatedEr: web3.Connection | undefined;
+    let subscriptionId: number | undefined;
+    let subscriptionLeaked = false;
 
+    await verifyTeeRpcIntegrity(teeEndpoint);
     const auth = await getAuthToken(
       teeEndpoint,
       wallet.publicKey,
@@ -143,7 +137,7 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
       }
       delegated = true;
 
-      const writeSignature = await sendOnEr(
+      await sendOnEr(
         authorizedEr,
         await program.methods
           .initProbePermission()
@@ -159,7 +153,21 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
       );
       permissionCreated = true;
 
-      await sendOnEr(
+      unauthenticatedEr = new web3.Connection(teeEndpoint, {
+        commitment: "confirmed",
+      });
+      try {
+        subscriptionId = await unauthenticatedEr.onAccountChange(
+          probe,
+          (account) => {
+            if (account.data.indexOf(secretBytes) >= 0)
+              subscriptionLeaked = true;
+          },
+          "confirmed"
+        );
+      } catch (_error) {}
+
+      const writeSignature = await sendOnEr(
         authorizedEr,
         await program.methods
           .writeProbe(secret)
@@ -173,14 +181,17 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
       if (!authorizedAccount || authorizedAccount.data.indexOf(secretBytes) < 0)
         throw new Error("authorized TEE read did not return the probe secret");
 
-      const unauthenticatedEr = new web3.Connection(teeEndpoint, {
-        commitment: "confirmed",
-      });
-      await assertNoRawRead(
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (subscriptionLeaked)
+        throw new Error("TEE subscription returned the probe secret");
+      await assertSecretAbsent(
         "base RPC",
         () => base.connection.getAccountInfo(probe),
-        Boolean
+        secretBytes
       );
+      const baseBatch = await base.connection.getMultipleAccountsInfo([probe]);
+      if (baseBatch.some((account) => account?.data.indexOf(secretBytes) >= 0))
+        throw new Error("base batch RPC returned the probe secret");
       await assertNoRawRead(
         "unauthenticated TEE account RPC",
         () => unauthenticatedEr.getAccountInfo(probe),
@@ -191,7 +202,6 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
         () => unauthenticatedEr.getMultipleAccountsInfo([probe]),
         (accounts) => accounts.some(Boolean)
       );
-      await assertNoSubscription(unauthenticatedEr, probe, "TEE subscription");
       await assertNoRawRead(
         "unauthenticated TEE logs RPC",
         () => unauthenticatedEr.getSignaturesForAddress(probe, { limit: 1 }),
@@ -203,7 +213,11 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
           unauthenticatedEr.getTransaction(writeSignature, {
             maxSupportedTransactionVersion: 0,
           }),
-        Boolean
+        (transaction) =>
+          transaction?.transaction.message.compiledInstructions.some(
+            (instruction) =>
+              Buffer.from(instruction.data).indexOf(secretBytes) >= 0
+          ) || false
       );
 
       const simulation = await program.methods
@@ -217,8 +231,18 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
       const signedSimulation = await wallet.signTransaction(simulation);
       await assertNoRawRead(
         "unauthenticated TEE simulation",
-        () => unauthenticatedEr.simulateTransaction(signedSimulation),
-        (result) => result.value.err === null
+        () =>
+          unauthenticatedEr.simulateTransaction(signedSimulation, [], [probe]),
+        (result) =>
+          (result.value.returnData &&
+            Buffer.from(result.value.returnData.data[0], "base64").indexOf(
+              secretBytes
+            ) >= 0) ||
+          result.value.accounts?.some(
+            (account) =>
+              account &&
+              Buffer.from(account.data[0], "base64").indexOf(secretBytes) >= 0
+          ) === true
       );
 
       const wrong = web3.Keypair.generate();
@@ -244,6 +268,8 @@ gate("BLACKOUT Phase 1 private-state gate", () => {
         (accounts) => accounts.some(Boolean)
       );
     } finally {
+      if (unauthenticatedEr && subscriptionId !== undefined)
+        await unauthenticatedEr.removeAccountChangeListener(subscriptionId);
       if (permissionCreated) {
         await sendOnEr(
           authorizedEr,
