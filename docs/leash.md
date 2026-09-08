@@ -34,4 +34,5 @@ The first LEASH gate is narrower than BLACKOUT's failed gate: a member agent
 must update its own ledger, while an authenticated sibling cannot read it by
 direct or batch TEE RPC, subscriptions, transaction messages, or requested
 simulation output. A successful member is intentionally allowed to read its
-own private ledger. Teardown coverage remains to be demonstrated.
+own private ledger. The tested lifecycle scrubs, closes permissions, and
+undelegates before verifying that base RPC has no reservation bytes.
