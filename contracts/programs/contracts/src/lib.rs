@@ -17,10 +17,21 @@ use ephemeral_rollups_sdk::{
 declare_id!("3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe");
 
 const MAX_PLAYERS: usize = 4;
+const MAX_LOBBY_PLAYERS: usize = 16;
+const MAX_PROJECTILES: usize = 32;
 const MAX_TICK: u32 = 72_000;
 const MAX_FUTURE_TICKS: u32 = 2;
 const MAX_AXIS: i16 = 100;
 const AIM_DIRECTIONS: u8 = 8;
+pub const LOBBY_SEED: &[u8] = b"lobby";
+pub const MATCH_SEED: &[u8] = b"match";
+pub const SPONSOR_SEED: &[u8] = b"sponsor";
+pub const WORLD_SEED: &[u8] = b"world";
+pub const INPUT_SEED: &[u8] = b"input";
+pub const VIEW_SEED: &[u8] = b"view";
+pub const RESULT_SEED: &[u8] = b"result";
+pub const RATING_SEED: &[u8] = b"rating";
+pub const SETTLEMENT_SEED: &[u8] = b"settlement";
 pub const PROBE_SEED: &[u8] = b"probe";
 
 #[ephemeral]
@@ -33,9 +44,14 @@ pub mod contracts {
         match_id: u64,
         max_tick: u32,
         rules_hash: [u8; 32],
+        prize_mint: Pubkey,
+        prize_amount: u64,
     ) -> Result<()> {
         require!(
-            max_tick > 0 && max_tick <= MAX_TICK,
+            max_tick > 0
+                && max_tick <= MAX_TICK
+                && prize_mint != Pubkey::default()
+                && prize_amount > 0,
             ErrorCode::InvalidMatchConfig
         );
 
@@ -48,6 +64,8 @@ pub mod contracts {
         match_config.tick = 0;
         match_config.max_tick = max_tick;
         match_config.rules_hash = rules_hash;
+        match_config.prize_mint = prize_mint;
+        match_config.prize_amount = prize_amount;
         match_config.bump = ctx.bumps.match_config;
         Ok(())
     }
@@ -72,9 +90,6 @@ pub mod contracts {
         let slot = match_config.player_count as usize;
         match_config.players[slot] = player;
         match_config.player_count += 1;
-        if match_config.player_count == MAX_PLAYERS as u8 {
-            match_config.phase = MatchPhase::Ready;
-        }
 
         let input = &mut ctx.accounts.input;
         input.match_config = match_config.key();
@@ -262,7 +277,7 @@ pub struct CreateMatch<'info> {
         init,
         payer = authority,
         space = MatchConfig::SPACE,
-        seeds = [b"match", authority.key().as_ref(), &match_id.to_le_bytes()],
+        seeds = [MATCH_SEED, &match_id.to_le_bytes()],
         bump
     )]
     pub match_config: Account<'info, MatchConfig>,
@@ -279,7 +294,7 @@ pub struct JoinMatch<'info> {
         init,
         payer = player,
         space = InputInbox::SPACE,
-        seeds = [b"input", match_config.key().as_ref(), player.key().as_ref()],
+        seeds = [INPUT_SEED, match_config.key().as_ref(), player.key().as_ref()],
         bump
     )]
     pub input: Account<'info, InputInbox>,
@@ -299,7 +314,7 @@ pub struct SubmitInput<'info> {
     pub match_config: Account<'info, MatchConfig>,
     #[account(
         mut,
-        seeds = [b"input", match_config.key().as_ref(), player.key().as_ref()],
+        seeds = [INPUT_SEED, match_config.key().as_ref(), player.key().as_ref()],
         bump = input.bump,
         has_one = match_config,
         has_one = player
@@ -394,11 +409,35 @@ pub struct MatchConfig {
     pub tick: u32,
     pub max_tick: u32,
     pub rules_hash: [u8; 32],
+    pub prize_mint: Pubkey,
+    pub prize_amount: u64,
     pub bump: u8,
 }
 
 impl MatchConfig {
-    pub const SPACE: usize = 8 + 32 + 8 + (32 * MAX_PLAYERS) + 1 + 1 + 4 + 4 + 32 + 1;
+    pub const SPACE: usize = 8 + 32 + 8 + (32 * MAX_PLAYERS) + 1 + 1 + 4 + 4 + 32 + 32 + 8 + 1;
+}
+
+#[account]
+pub struct LobbyQueue {
+    pub players: [Pubkey; MAX_LOBBY_PLAYERS],
+    pub player_count: u8,
+    pub bump: u8,
+}
+
+impl LobbyQueue {
+    pub const SPACE: usize = 8 + (32 * MAX_LOBBY_PLAYERS) + 1 + 1;
+}
+
+#[account]
+pub struct MatchSponsor {
+    pub match_config: Pubkey,
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
+impl MatchSponsor {
+    pub const SPACE: usize = 8 + 32 + 32 + 1;
 }
 
 #[account]
@@ -419,6 +458,137 @@ impl InputInbox {
     pub const SPACE: usize = 8 + 32 + 32 + 8 + 1 + 4 + 2 + 2 + 1 + 1 + 1;
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
+pub struct PlayerState {
+    pub x: i32,
+    pub y: i32,
+    pub velocity_x: i16,
+    pub velocity_y: i16,
+    pub health: u16,
+    pub cooldown_ticks: u16,
+    pub aim: u8,
+    pub alive: bool,
+}
+
+impl PlayerState {
+    pub const SPACE: usize = 4 + 4 + 2 + 2 + 2 + 2 + 1 + 1;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
+pub struct ProjectileState {
+    pub active: bool,
+    pub owner_index: u8,
+    pub x: i32,
+    pub y: i32,
+    pub velocity_x: i16,
+    pub velocity_y: i16,
+    pub damage: u16,
+    pub remaining_ticks: u16,
+}
+
+impl ProjectileState {
+    pub const SPACE: usize = 1 + 1 + 4 + 4 + 2 + 2 + 2 + 2;
+}
+
+#[account]
+pub struct World {
+    pub match_config: Pubkey,
+    pub authority: Pubkey,
+    pub tick: u32,
+    pub phase: MatchPhase,
+    pub players: [PlayerState; MAX_PLAYERS],
+    pub projectiles: [ProjectileState; MAX_PROJECTILES],
+    pub scores: [u16; MAX_PLAYERS],
+    pub secret_salt: [u8; 32],
+    pub scrubbed: bool,
+    pub bump: u8,
+}
+
+impl World {
+    pub const SPACE: usize = 8
+        + 32
+        + 32
+        + 4
+        + 1
+        + (PlayerState::SPACE * MAX_PLAYERS)
+        + (ProjectileState::SPACE * MAX_PROJECTILES)
+        + (2 * MAX_PLAYERS)
+        + 32
+        + 1
+        + 1;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
+pub struct VisibleEntity {
+    pub visible: bool,
+    pub player_index: u8,
+    pub x: i32,
+    pub y: i32,
+    pub health: u16,
+}
+
+impl VisibleEntity {
+    pub const SPACE: usize = 1 + 1 + 4 + 4 + 2;
+}
+
+#[account]
+pub struct PlayerView {
+    pub match_config: Pubkey,
+    pub player: Pubkey,
+    pub tick: u32,
+    pub own_state: PlayerState,
+    pub visible_players: [VisibleEntity; MAX_PLAYERS - 1],
+    pub bump: u8,
+}
+
+impl PlayerView {
+    pub const SPACE: usize =
+        8 + 32 + 32 + 4 + PlayerState::SPACE + (VisibleEntity::SPACE * (MAX_PLAYERS - 1)) + 1;
+}
+
+#[account]
+pub struct MatchResult {
+    pub match_config: Pubkey,
+    pub winner: Pubkey,
+    pub scores: [u16; MAX_PLAYERS],
+    pub final_tick: u32,
+    pub rules_hash: [u8; 32],
+    pub result_digest: [u8; 32],
+    pub settlement_id: [u8; 32],
+    pub settled: bool,
+    pub bump: u8,
+}
+
+impl MatchResult {
+    pub const SPACE: usize = 8 + 32 + 32 + (2 * MAX_PLAYERS) + 4 + 32 + 32 + 32 + 1 + 1;
+}
+
+#[account]
+pub struct PlayerRating {
+    pub player: Pubkey,
+    pub games: u32,
+    pub wins: u32,
+    pub rating: i32,
+    pub last_settled_match: Pubkey,
+    pub bump: u8,
+}
+
+impl PlayerRating {
+    pub const SPACE: usize = 8 + 32 + 4 + 4 + 4 + 32 + 1;
+}
+
+#[account]
+pub struct SettlementMarker {
+    pub settlement_id: [u8; 32],
+    pub match_config: Pubkey,
+    pub result_digest: [u8; 32],
+    pub bump: u8,
+}
+
+impl SettlementMarker {
+    pub const SPACE: usize = 8 + 32 + 32 + 32 + 1;
+}
+
 #[account]
 pub struct PrivateProbe {
     pub authority: Pubkey,
@@ -433,15 +603,24 @@ impl PrivateProbe {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum MatchPhase {
     Created,
+    Funded,
+    Delegated,
     Ready,
     Running,
     Finished,
+    Committing,
+    Settled,
+    Closed,
 }
 
 #[error_code]
 pub enum ErrorCode {
     #[msg("The match configuration is invalid.")]
     InvalidMatchConfig,
+    #[msg("The signer is not authorized for this operation.")]
+    Unauthorized,
+    #[msg("The signer cannot read this player view.")]
+    UnauthorizedView,
     #[msg("The match is not in the required phase.")]
     WrongPhase,
     #[msg("The match already has four players.")]
@@ -460,4 +639,25 @@ pub enum ErrorCode {
     PrivateStateNotReady,
     #[msg("The private probe must be scrubbed before undelegation.")]
     ProbeNotScrubbed,
+    #[msg("The match settlement caller is not authorized.")]
+    UnauthorizedSettlement,
+    #[msg("The match result has already been settled.")]
+    AlreadySettled,
+    #[msg("The result does not match the finished private state.")]
+    InvalidResult,
+    #[msg("An arithmetic operation overflowed.")]
+    ArithmeticOverflow,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_accounts_are_fixed_size() {
+        assert_eq!(World::SPACE, 767);
+        assert_eq!(PlayerView::SPACE, 131);
+        assert_eq!(InputInbox::SPACE, 92);
+        assert_eq!(MatchResult::SPACE, 182);
+    }
 }
