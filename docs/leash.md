@@ -32,5 +32,6 @@ claims a private game.
 
 The first LEASH gate is narrower than BLACKOUT's failed gate: a member agent
 must update its own ledger, while an authenticated sibling cannot read it by
-any supported TEE RPC path. A successful member is intentionally allowed to
-read its own private ledger.
+direct or batch TEE RPC. A successful member is intentionally allowed to read
+its own private ledger. Subscription, transaction, simulation, and teardown
+coverage remain to be demonstrated.
