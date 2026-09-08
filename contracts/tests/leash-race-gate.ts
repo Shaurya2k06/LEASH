@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
 import {
+  MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getAuthToken,
@@ -9,9 +10,12 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
+import { writeArtifact } from "./artifact";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
+const RECEIPT_SEED = "receipt";
+const TERMINAL_SEED = "terminal";
 const PERMISSION_VAULT = new web3.PublicKey(
   "MagicVau1t999999999999999999999999999999999"
 );
@@ -55,9 +59,33 @@ async function send(
     signature,
     "confirmed"
   );
-  if (confirmation.value.err)
-    throw new Error(JSON.stringify(confirmation.value.err));
+  if (confirmation.value.err) {
+    const failed = await provider.connection.getTransaction(signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    throw new Error(
+      `${signature}: ${JSON.stringify(confirmation.value.err)}\n${
+        failed?.meta?.logMessages?.join("\n") || "no logs"
+      }`
+    );
+  }
   return signature;
+}
+
+async function mustFailWith(
+  action: Promise<unknown>,
+  expected: string,
+  message: string
+) {
+  try {
+    await action;
+  } catch (error) {
+    if (!String(error).toLowerCase().includes(expected.toLowerCase()))
+      throw new Error(`${message}: unexpected error ${String(error)}`);
+    return;
+  }
+  throw new Error(message);
 }
 
 gate("LEASH twenty-agent budget race gate", () => {
@@ -105,6 +133,20 @@ gate("LEASH twenty-agent budget race gate", () => {
           program.programId
         )[0]
     );
+    const receipts = sessions.map(
+      (session) =>
+        web3.PublicKey.findProgramAddressSync(
+          [Buffer.from(RECEIPT_SEED), session.toBuffer()],
+          program.programId
+        )[0]
+    );
+    const terminals = sessions.map(
+      (session) =>
+        web3.PublicKey.findProgramAddressSync(
+          [Buffer.from(TERMINAL_SEED), session.toBuffer()],
+          program.programId
+        )[0]
+    );
     const policyPermission = permissionPdaFromAccount(policy);
 
     await verifyTeeRpcIntegrity(teeEndpoint);
@@ -130,22 +172,39 @@ gate("LEASH twenty-agent budget race gate", () => {
       .signers([controller])
       .rpc();
     await Promise.all(
-      agents.map(async ({ agent, base: agentBase }, index) =>
-        send(
-          agentBase,
-          await program.methods
-            .createSession()
-            .accountsPartial({
-              agent: agent.publicKey,
-              policy,
-              session: sessions[index],
-              systemProgram: web3.SystemProgram.programId,
-            })
-            .signers([agent])
-            .transaction()
-        )
+      agents.map(async ({ agent }, index) =>
+        program.methods
+          .createSession()
+          .accountsPartial({
+            agent: agent.publicKey,
+            policy,
+            controller: controller.publicKey,
+            session: sessions[index],
+            systemProgram: web3.SystemProgram.programId,
+          })
+          .signers([agent, controller])
+          .rpc()
       )
     );
+    for (let index = 0; index < AGENT_COUNT; index += 1) {
+      await program.methods
+        .createSettlementReceipt(
+          controller.publicKey,
+          controller.publicKey,
+          controller.publicKey,
+          program.programId
+        )
+        .accountsPartial({
+          controller: controller.publicKey,
+          policy,
+          session: sessions[index],
+          receipt: receipts[index],
+          terminal: terminals[index],
+          systemProgram: web3.SystemProgram.programId,
+        })
+        .signers([controller])
+        .rpc();
+    }
     await Promise.all(
       agents.map(async ({ agent, base: agentBase }, index) =>
         send(
@@ -180,7 +239,7 @@ gate("LEASH twenty-agent budget race gate", () => {
     await send(
       controllerEr,
       await program.methods
-        .initPolicyPermission()
+        .initPolicyPermission(agents.map(({ agent }) => agent.publicKey))
         .accountsPartial({
           controller: controller.publicKey,
           policy,
@@ -188,6 +247,7 @@ gate("LEASH twenty-agent budget race gate", () => {
           magicProgram: MAGIC_PROGRAM_ID,
           permissionProgram: PERMISSION_PROGRAM_ID,
           ephemeralVault: PERMISSION_VAULT,
+          systemProgram: web3.SystemProgram.programId,
         })
         .transaction()
     );
@@ -210,8 +270,11 @@ gate("LEASH twenty-agent budget race gate", () => {
       )
     );
 
-    const expiresAt = new anchor.BN(
+    const policyExpiresAt = new anchor.BN(
       (await controllerEr.connection.getSlot()) + 300
+    );
+    const permitExpiresAt = new anchor.BN(
+      (await controllerEr.connection.getSlot()) + 30
     );
     await send(
       controllerEr,
@@ -220,12 +283,13 @@ gate("LEASH twenty-agent budget race gate", () => {
           1,
           program.programId,
           ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
           program.programId,
           controller.publicKey,
           controller.publicKey,
           amount,
           amount,
-          expiresAt
+          policyExpiresAt
         )
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
@@ -238,7 +302,7 @@ gate("LEASH twenty-agent budget race gate", () => {
             await program.methods
               .issuePermit(
                 amount,
-                expiresAt,
+                permitExpiresAt,
                 program.programId,
                 ACTION_DISCRIMINATOR,
                 PAYLOAD_HASH,
@@ -254,7 +318,13 @@ gate("LEASH twenty-agent budget race gate", () => {
               .transaction()
           );
           return true;
-        } catch (_) {
+        } catch (error) {
+          if (!String(error).toLowerCase().includes("budgetexceeded"))
+            throw new Error(
+              `race loser ${index} failed for an unexpected reason: ${String(
+                error
+              )}`
+            );
           return false;
         }
       })
@@ -285,6 +355,100 @@ gate("LEASH twenty-agent budget race gate", () => {
       AGENT_COUNT - 1
     )
       throw new Error("a losing race attempt mutated its reservation");
+
+    const loserIndex = ledgers.findIndex(
+      (ledger) => ledger.state.idle !== undefined
+    );
+    await mustFailWith(
+      send(
+        agentErs[loserIndex],
+        await program.methods
+          .issuePermit(
+            new anchor.BN(1),
+            policyExpiresAt,
+            program.programId,
+            ACTION_DISCRIMINATOR,
+            PAYLOAD_HASH,
+            controller.publicKey,
+            program.programId,
+            controller.publicKey
+          )
+          .accountsPartial({
+            agent: agents[loserIndex].agent.publicKey,
+            policy,
+            session: sessions[loserIndex],
+          })
+          .transaction()
+      ),
+      "BudgetExceeded",
+      "losing reservation did not return the exact budget error"
+    );
+
+    const winnerIndex = ledgers.findIndex(
+      (ledger) => ledger.state.reserved !== undefined
+    );
+    const winnerReceipt = receipts[winnerIndex];
+    const winnerTerminal = terminals[winnerIndex];
+    const winnerPermission = permissionPdaFromAccount(winnerReceipt);
+    await program.methods
+      .delegateReceipt(sessions[winnerIndex])
+      .accountsPartial({
+        controller: controller.publicKey,
+        receipt: winnerReceipt,
+        validator: TEE_VALIDATOR,
+      })
+      .signers([controller])
+      .rpc();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await send(
+      controllerEr,
+      await program.methods
+        .initReceiptPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          receipt: winnerReceipt,
+          permission: winnerPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: PERMISSION_VAULT,
+        })
+        .transaction()
+    );
+    while (
+      (await controllerEr.connection.getSlot()) <= permitExpiresAt.toNumber()
+    )
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    await send(
+      controllerEr,
+      await program.methods
+        .expirePermit()
+        .accountsPartial({
+          policy,
+          session: sessions[winnerIndex],
+          receipt: winnerReceipt,
+          terminal: winnerTerminal,
+          controller: controller.publicKey,
+        })
+        .transaction()
+    );
+    await send(
+      controllerEr,
+      await program.methods
+        .commitExpiry()
+        .accountsPartial({
+          policy,
+          session: sessions[winnerIndex],
+          receipt: winnerReceipt,
+          terminal: winnerTerminal,
+          controller: controller.publicKey,
+          permission: winnerPermission,
+          ephemeralVault: PERMISSION_VAULT,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          magicContext: MAGIC_CONTEXT_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
+        })
+        .transaction()
+    );
 
     await Promise.all(
       sessions.map(async (session) =>
@@ -361,5 +525,13 @@ gate("LEASH twenty-agent budget race gate", () => {
         .accountsPartial({ payer: controller.publicKey, policy })
         .transaction()
     );
+    writeArtifact("leash-race-gate.json", {
+      gate: "twenty-session-budget-race",
+      status: "passed",
+      contenders: AGENT_COUNT,
+      successfulReservations: attempts.filter(Boolean).length,
+      losingReservations: attempts.filter((attempt) => !attempt).length,
+      exactBudgetPreserved: true,
+    });
   });
 });

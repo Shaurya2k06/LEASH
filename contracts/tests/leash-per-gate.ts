@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
 import {
+  MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getAuthToken,
@@ -9,9 +10,12 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
+import { writeArtifact } from "./artifact";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
+const RECEIPT_SEED = "receipt";
+const TERMINAL_SEED = "terminal";
 const VAULT_ID = new web3.PublicKey(
   "MagicVau1t999999999999999999999999999999999"
 );
@@ -52,6 +56,21 @@ async function send(
   );
 }
 
+async function mustFailWith(
+  action: Promise<unknown>,
+  expected: string,
+  message: string
+) {
+  try {
+    await action;
+  } catch (error) {
+    if (!String(error).toLowerCase().includes(expected.toLowerCase()))
+      throw new Error(`${message}: unexpected error ${String(error)}`);
+    return;
+  }
+  throw new Error(message);
+}
+
 gate("LEASH TEE sibling-read gate", () => {
   it("allows an agent ledger while denying a sibling", async () => {
     const baseEndpoint =
@@ -85,8 +104,17 @@ gate("LEASH TEE sibling-read gate", () => {
       ],
       program.programId
     );
+    const [receipt] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from(RECEIPT_SEED), session.toBuffer()],
+      program.programId
+    );
+    const [terminal] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from(TERMINAL_SEED), session.toBuffer()],
+      program.programId
+    );
     const policyPermission = permissionPdaFromAccount(policy);
     const sessionPermission = permissionPdaFromAccount(session);
+    const receiptPermission = permissionPdaFromAccount(receipt);
     const amount = new anchor.BN(76123);
     const amountBytes = amount.toArrayLike(Buffer, "le", 8);
     let subscriptionId: number | undefined;
@@ -98,6 +126,11 @@ gate("LEASH TEE sibling-read gate", () => {
         web3.SystemProgram.transfer({
           fromPubkey: controller.publicKey,
           toPubkey: agent.publicKey,
+          lamports: 10_000_000,
+        }),
+        web3.SystemProgram.transfer({
+          fromPubkey: controller.publicKey,
+          toPubkey: sibling.publicKey,
           lamports: 10_000_000,
         })
       ),
@@ -117,10 +150,28 @@ gate("LEASH TEE sibling-read gate", () => {
       .accountsPartial({
         agent: agent.publicKey,
         policy,
+        controller: controller.publicKey,
         session,
         systemProgram: web3.SystemProgram.programId,
       })
-      .signers([agent])
+      .signers([agent, controller])
+      .rpc();
+    await program.methods
+      .createSettlementReceipt(
+        agent.publicKey,
+        agent.publicKey,
+        controller.publicKey,
+        program.programId
+      )
+      .accountsPartial({
+        controller: controller.publicKey,
+        policy,
+        session,
+        receipt,
+        terminal,
+        systemProgram: web3.SystemProgram.programId,
+      })
+      .signers([controller])
       .rpc();
     await program.methods
       .delegateSession(policy)
@@ -131,11 +182,47 @@ gate("LEASH TEE sibling-read gate", () => {
       })
       .signers([agent])
       .rpc();
+    const wrongValidator = web3.Keypair.generate().publicKey;
+    await mustFailWith(
+      program.methods
+        .delegatePolicy(policyId)
+        .accountsPartial({
+          controller: controller.publicKey,
+          policy,
+          validator: wrongValidator,
+        })
+        .signers([controller])
+        .rpc(),
+      "InvalidPolicy",
+      "arbitrary validator was accepted"
+    );
     await program.methods
       .delegatePolicy(policyId)
       .accountsPartial({
         controller: controller.publicKey,
         policy,
+        validator: TEE_VALIDATOR,
+      })
+      .signers([controller])
+      .rpc();
+    await mustFailWith(
+      program.methods
+        .delegateReceipt(session)
+        .accountsPartial({
+          controller: sibling.publicKey,
+          receipt,
+          validator: TEE_VALIDATOR,
+        })
+        .signers([sibling])
+        .rpc(),
+      "UnauthorizedSettlement",
+      "sibling controller delegated the receipt"
+    );
+    await program.methods
+      .delegateReceipt(session)
+      .accountsPartial({
+        controller: controller.publicKey,
+        receipt,
         validator: TEE_VALIDATOR,
       })
       .signers([controller])
@@ -148,7 +235,7 @@ gate("LEASH TEE sibling-read gate", () => {
     await send(
       controllerEr,
       await program.methods
-        .initPolicyPermission()
+        .initPolicyPermission([agent.publicKey])
         .accountsPartial({
           controller: controller.publicKey,
           policy,
@@ -156,6 +243,7 @@ gate("LEASH TEE sibling-read gate", () => {
           magicProgram: MAGIC_PROGRAM_ID,
           permissionProgram: PERMISSION_PROGRAM_ID,
           ephemeralVault: VAULT_ID,
+          systemProgram: web3.SystemProgram.programId,
         })
         .transaction()
     );
@@ -173,6 +261,20 @@ gate("LEASH TEE sibling-read gate", () => {
         })
         .transaction()
     );
+    await send(
+      controllerEr,
+      await program.methods
+        .initReceiptPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          receipt,
+          permission: receiptPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
     const expiresAt = new anchor.BN(
       (await controllerEr.connection.getSlot()) + 100
     );
@@ -184,14 +286,17 @@ gate("LEASH TEE sibling-read gate", () => {
         },
         "confirmed"
       );
-    } catch (_) {}
-    const issueSignature = await send(
+    } catch (error) {
+      throw new Error(`subscription RPC is unavailable: ${String(error)}`);
+    }
+    await send(
       controllerEr,
       await program.methods
         .configurePolicy(
           1,
           program.programId,
           ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
           program.programId,
           agent.publicKey,
           controller.publicKey,
@@ -202,7 +307,7 @@ gate("LEASH TEE sibling-read gate", () => {
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
-    await send(
+    const issueSignature = await send(
       agentEr,
       await program.methods
         .issuePermit(
@@ -241,6 +346,7 @@ gate("LEASH TEE sibling-read gate", () => {
       issueSignature,
       { maxSupportedTransactionVersion: 0 }
     );
+    if (!transaction) throw new Error("sibling transaction RPC returned null");
     if (
       transaction?.transaction.message.compiledInstructions.some(
         (instruction) => Buffer.from(instruction.data).indexOf(amountBytes) >= 0
@@ -264,13 +370,12 @@ gate("LEASH TEE sibling-read gate", () => {
     simulation.recentBlockhash = (
       await agentEr.connection.getLatestBlockhash()
     ).blockhash;
-    const simulated = await siblingEr.connection
-      .simulateTransaction(
-        await agentEr.wallet.signTransaction(simulation),
-        [],
-        [session]
-      )
-      .catch(() => undefined);
+    const simulated = await siblingEr.connection.simulateTransaction(
+      await agentEr.wallet.signTransaction(simulation),
+      [],
+      [session]
+    );
+    if (!simulated) throw new Error("sibling simulation RPC returned null");
     const simulatedAccount = simulated?.value.accounts?.[0];
     if (
       (simulated?.value.returnData &&
@@ -282,6 +387,40 @@ gate("LEASH TEE sibling-read gate", () => {
           0)
     )
       throw new Error("sibling simulation returned the reservation");
+
+    while ((await controllerEr.connection.getSlot()) <= expiresAt.toNumber())
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    await send(
+      controllerEr,
+      await program.methods
+        .expirePermit()
+        .accountsPartial({
+          policy,
+          session,
+          receipt,
+          terminal,
+          controller: controller.publicKey,
+        })
+        .transaction()
+    );
+    await send(
+      controllerEr,
+      await program.methods
+        .commitExpiry()
+        .accountsPartial({
+          policy,
+          session,
+          receipt,
+          terminal,
+          controller: controller.publicKey,
+          permission: receiptPermission,
+          ephemeralVault: VAULT_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          magicContext: MAGIC_CONTEXT_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
+        })
+        .transaction()
+    );
 
     await send(
       controllerEr,
@@ -346,5 +485,16 @@ gate("LEASH TEE sibling-read gate", () => {
     ]);
     if (tornDown.some((account) => account?.data.indexOf(amountBytes) >= 0))
       throw new Error("teardown committed the reservation to base RPC");
+    writeArtifact("leash-per-gate.json", {
+      gate: "sibling-read",
+      status: "passed",
+      ownLedgerVisible: true,
+      baseLedgerSecretBytes: false,
+      siblingDirectVisible: false,
+      siblingBatchVisible: false,
+      siblingSubscriptionLeaked: false,
+      siblingTransactionSecretBytes: false,
+      siblingSimulationSecretBytes: false,
+    });
   });
 });

@@ -25,6 +25,7 @@ pub const RECEIPT_SEED: &[u8] = b"receipt";
 pub const TERMINAL_SEED: &[u8] = b"terminal";
 pub const ACTION_ESCROW_INDEX: u8 = 255;
 pub const MAX_TERMINAL_RECORDS: usize = 128;
+pub const MAX_POLICY_AGENTS: usize = 128;
 
 #[ephemeral]
 #[program]
@@ -44,6 +45,7 @@ pub mod contracts {
         policy.policy_version = 0;
         policy.allowed_program = Pubkey::default();
         policy.allowed_discriminator = [0; 8];
+        policy.allowed_payload_hash = [0; 32];
         policy.allowed_mint = Pubkey::default();
         policy.allowed_recipient = Pubkey::default();
         policy.allowed_source_vault = Pubkey::default();
@@ -52,6 +54,7 @@ pub mod contracts {
         policy.remaining_budget = 0;
         policy.expires_at_slot = 0;
         policy.next_permit = 0;
+        policy.active_permits = 0;
         policy.scrubbed = true;
         policy.bump = ctx.bumps.policy;
         fund(
@@ -258,13 +261,35 @@ pub mod contracts {
         Ok(())
     }
 
-    pub fn init_policy_permission(ctx: Context<PolicyPermission>) -> Result<()> {
+    pub fn init_policy_permission(
+        ctx: Context<PolicyPermission>,
+        agents: Vec<Pubkey>,
+    ) -> Result<()> {
         if ctx.accounts.permission.lamports() > 0 {
             return Ok(());
         }
+        require!(
+            !agents.is_empty() && agents.len() <= MAX_POLICY_AGENTS,
+            ErrorCode::InvalidPolicy
+        );
         let policy = &ctx.accounts.policy;
         let id = policy.policy_id.to_le_bytes();
         let bump = [policy.bump];
+        let mut keys = Vec::with_capacity(agents.len() + 1);
+        keys.push(policy.controller);
+        for agent in agents {
+            require!(
+                agent != Pubkey::default() && agent != policy.controller,
+                ErrorCode::InvalidPolicy
+            );
+            keys.push(agent);
+        }
+        fund(
+            &ctx.accounts.system_program,
+            &ctx.accounts.controller,
+            &policy.to_account_info(),
+            keys.len(),
+        )?;
         CreateEphemeralPermissionCpi {
             payer: policy.to_account_info(),
             permissioned_account: policy.to_account_info(),
@@ -272,7 +297,7 @@ pub mod contracts {
             vault: ctx.accounts.ephemeral_vault.to_account_info(),
             magic_program: ctx.accounts.magic_program.to_account_info(),
             permission_program: ctx.accounts.permission_program.to_account_info(),
-            args: members(vec![policy.controller]),
+            args: members(keys),
         }
         .invoke_signed(&[&[POLICY_SEED, policy.controller.as_ref(), &id, &bump]])?;
         Ok(())
@@ -307,6 +332,7 @@ pub mod contracts {
         policy_version: u8,
         allowed_program: Pubkey,
         allowed_discriminator: [u8; 8],
+        allowed_payload_hash: [u8; 32],
         allowed_mint: Pubkey,
         allowed_recipient: Pubkey,
         allowed_source_vault: Pubkey,
@@ -318,6 +344,7 @@ pub mod contracts {
             policy_version == 1
                 && allowed_program == crate::ID
                 && allowed_discriminator != [0; 8]
+                && allowed_payload_hash != [0; 32]
                 && allowed_mint != Pubkey::default()
                 && allowed_recipient != Pubkey::default()
                 && allowed_source_vault != Pubkey::default()
@@ -331,6 +358,7 @@ pub mod contracts {
         policy.policy_version = policy_version;
         policy.allowed_program = allowed_program;
         policy.allowed_discriminator = allowed_discriminator;
+        policy.allowed_payload_hash = allowed_payload_hash;
         policy.allowed_mint = allowed_mint;
         policy.allowed_recipient = allowed_recipient;
         policy.allowed_source_vault = allowed_source_vault;
@@ -339,15 +367,18 @@ pub mod contracts {
             policy_version,
             allowed_program,
             allowed_discriminator,
+            allowed_payload_hash,
             allowed_mint,
             allowed_recipient,
             allowed_source_vault,
             max_permit,
+            budget,
             expires_at_slot,
         );
         policy.remaining_budget = budget;
         policy.expires_at_slot = expires_at_slot;
         policy.next_permit = 0;
+        policy.active_permits = 0;
         policy.scrubbed = false;
         Ok(())
     }
@@ -412,6 +443,9 @@ pub mod contracts {
             ErrorCode::InvalidAction
         );
         ctx.accounts.terminal.kind = TerminalKind::Open;
+        ctx.accounts.terminal.nonce = 0;
+        ctx.accounts.terminal.amount = 0;
+        ctx.accounts.terminal.digest = [0; 32];
         let receipt = &mut ctx.accounts.receipt;
         receipt.nonce = nonce;
         receipt.status = ReceiptStatus::Pending;
@@ -469,7 +503,14 @@ pub mod contracts {
                 && ctx.accounts.terminal.nonce == nonce,
             ErrorCode::InvalidSettlement
         );
-        consume(&mut ctx.accounts.session, nonce, Clock::get()?.slot)
+        consume(&mut ctx.accounts.session, nonce)?;
+        ctx.accounts.policy.active_permits = ctx
+            .accounts
+            .policy
+            .active_permits
+            .checked_sub(1)
+            .ok_or(ErrorCode::ArithmeticOverflow)?;
+        Ok(())
     }
 
     pub fn expire_permit(ctx: Context<ExpirePermit>) -> Result<()> {
@@ -486,7 +527,8 @@ pub mod contracts {
             matches!(
                 ctx.accounts.receipt.status,
                 ReceiptStatus::Empty | ReceiptStatus::Settled | ReceiptStatus::Expired
-            ),
+            ) || (ctx.accounts.receipt.status == ReceiptStatus::Pending
+                && ctx.accounts.terminal.kind == TerminalKind::Open),
             ErrorCode::AlreadySettled
         );
         let amount = session.reserved_amount;
@@ -501,9 +543,18 @@ pub mod contracts {
             .ok_or(ErrorCode::ArithmeticOverflow)?;
         session.reserved_amount = 0;
         session.state = PermitState::Expired;
+        ctx.accounts.policy.active_permits = ctx
+            .accounts
+            .policy
+            .active_permits
+            .checked_sub(1)
+            .ok_or(ErrorCode::ArithmeticOverflow)?;
         session.pending_digest = digest;
         session.pending_amount = amount;
         ctx.accounts.terminal.kind = TerminalKind::Open;
+        ctx.accounts.terminal.nonce = 0;
+        ctx.accounts.terminal.amount = 0;
+        ctx.accounts.terminal.digest = [0; 32];
         let receipt = &mut ctx.accounts.receipt;
         receipt.nonce = nonce;
         receipt.status = ReceiptStatus::Expired;
@@ -563,6 +614,15 @@ pub mod contracts {
 
     pub fn scrub_policy(ctx: Context<PolicyController>) -> Result<()> {
         let policy = &mut ctx.accounts.policy;
+        require!(policy.active_permits == 0, ErrorCode::ReservationExists);
+        policy.policy_version = 0;
+        policy.allowed_program = Pubkey::default();
+        policy.allowed_discriminator = [0; 8];
+        policy.allowed_payload_hash = [0; 32];
+        policy.allowed_mint = Pubkey::default();
+        policy.allowed_recipient = Pubkey::default();
+        policy.allowed_source_vault = Pubkey::default();
+        policy.max_permit = 0;
         policy.policy_hash = [0; 32];
         policy.remaining_budget = 0;
         policy.expires_at_slot = 0;
@@ -577,6 +637,7 @@ pub mod contracts {
             session.state != PermitState::Reserved,
             ErrorCode::ReservationExists
         );
+        session.permit_nonce = 0;
         session.reserved_amount = 0;
         session.permit_expires_at_slot = 0;
         session.spent_amount = 0;
@@ -788,10 +849,12 @@ fn policy_hash(
     policy_version: u8,
     allowed_program: Pubkey,
     allowed_discriminator: [u8; 8],
+    allowed_payload_hash: [u8; 32],
     allowed_mint: Pubkey,
     allowed_recipient: Pubkey,
     allowed_source_vault: Pubkey,
     max_permit: u64,
+    budget: u64,
     expires_at_slot: u64,
 ) -> [u8; 32] {
     Pubkey::find_program_address(
@@ -800,10 +863,12 @@ fn policy_hash(
             &[policy_version],
             allowed_program.as_ref(),
             &allowed_discriminator,
+            allowed_payload_hash.as_ref(),
             allowed_mint.as_ref(),
             allowed_recipient.as_ref(),
             allowed_source_vault.as_ref(),
             &max_permit.to_le_bytes(),
+            &budget.to_le_bytes(),
             &expires_at_slot.to_le_bytes(),
         ],
         &crate::ID,
@@ -826,6 +891,10 @@ fn settlement_digest(
             session.pending_program.as_ref(),
             &session.pending_discriminator,
             session.pending_payload_hash.as_ref(),
+            session.agent.as_ref(),
+            session.controller.as_ref(),
+            receipt.session.as_ref(),
+            receipt.controller.as_ref(),
             receipt.recipient.as_ref(),
             receipt.mint.as_ref(),
             receipt.source_vault.as_ref(),
@@ -958,7 +1027,10 @@ fn reserve(
         action_discriminator == policy.allowed_discriminator,
         ErrorCode::InvalidAction
     );
-    require!(payload_hash != [0; 32], ErrorCode::InvalidAction);
+    require!(
+        payload_hash == policy.allowed_payload_hash,
+        ErrorCode::InvalidAction
+    );
     require_keys_eq!(
         recipient,
         policy.allowed_recipient,
@@ -978,6 +1050,10 @@ fn reserve(
         .next_permit
         .checked_add(1)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
+    policy.active_permits = policy
+        .active_permits
+        .checked_add(1)
+        .ok_or(ErrorCode::ArithmeticOverflow)?;
     session.permit_nonce = policy.next_permit;
     session.reserved_amount = amount;
     session.permit_expires_at_slot = expires_at_slot;
@@ -990,13 +1066,12 @@ fn reserve(
     Ok(())
 }
 
-fn consume(session: &mut SessionLedger, nonce: u64, now: u64) -> Result<()> {
+fn consume(session: &mut SessionLedger, nonce: u64) -> Result<()> {
     require!(
         session.state == PermitState::Reserved,
         ErrorCode::NoReservation
     );
     require!(session.permit_nonce == nonce, ErrorCode::Replay);
-    require!(now <= session.permit_expires_at_slot, ErrorCode::Expired);
     session.spent_amount = session
         .spent_amount
         .checked_add(session.reserved_amount)
@@ -1012,7 +1087,7 @@ pub struct CreatePolicy<'info> {
     #[account(mut)]
     pub controller: Signer<'info>,
     #[account(init, payer = controller, space = 8 + SecretPolicy::SPACE, seeds = [POLICY_SEED, controller.key().as_ref(), &policy_id.to_le_bytes()], bump)]
-    pub policy: Account<'info, SecretPolicy>,
+    pub policy: Box<Account<'info, SecretPolicy>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1020,9 +1095,11 @@ pub struct CreatePolicy<'info> {
 pub struct CreateSession<'info> {
     #[account(mut)]
     pub agent: Signer<'info>,
+    #[account(has_one = controller)]
     pub policy: Account<'info, SecretPolicy>,
+    pub controller: Signer<'info>,
     #[account(init, payer = agent, space = 8 + SessionLedger::SPACE, seeds = [SESSION_SEED, policy.key().as_ref(), agent.key().as_ref()], bump)]
-    pub session: Account<'info, SessionLedger>,
+    pub session: Box<Account<'info, SessionLedger>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1035,9 +1112,9 @@ pub struct CreateSettlementReceipt<'info> {
     #[account(has_one = policy, has_one = controller)]
     pub session: Account<'info, SessionLedger>,
     #[account(init, payer = controller, space = 8 + SettlementReceipt::SPACE, seeds = [RECEIPT_SEED, session.key().as_ref()], bump)]
-    pub receipt: Account<'info, SettlementReceipt>,
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
     #[account(init, payer = controller, space = 8 + TerminalMarker::SPACE, seeds = [TERMINAL_SEED, session.key().as_ref()], bump)]
-    pub terminal: Account<'info, TerminalMarker>,
+    pub terminal: Box<Account<'info, TerminalMarker>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1083,7 +1160,7 @@ pub struct DelegateReceipt<'info> {
 #[derive(Accounts)]
 pub struct PolicyController<'info> {
     #[account(mut, has_one = controller)]
-    pub policy: Account<'info, SecretPolicy>,
+    pub policy: Box<Account<'info, SecretPolicy>>,
     pub controller: Signer<'info>,
 }
 
@@ -1092,7 +1169,7 @@ pub struct SessionController<'info> {
     #[account(mut, has_one = controller)]
     pub policy: Account<'info, SecretPolicy>,
     #[account(mut, has_one = policy, has_one = controller)]
-    pub session: Account<'info, SessionLedger>,
+    pub session: Box<Account<'info, SessionLedger>>,
     pub controller: Signer<'info>,
 }
 
@@ -1111,10 +1188,10 @@ pub struct SettlePermit<'info> {
     pub policy: Account<'info, SecretPolicy>,
     #[account(mut, has_one = policy, has_one = controller)]
     pub session: Account<'info, SessionLedger>,
-    #[account(mut, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
-    pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
-    pub terminal: Account<'info, TerminalMarker>,
+    #[account(mut, has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
+    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
 }
 
@@ -1124,9 +1201,9 @@ pub struct ExpirePermit<'info> {
     pub policy: Account<'info, SecretPolicy>,
     #[account(mut, has_one = policy, has_one = controller)]
     pub session: Account<'info, SessionLedger>,
-    #[account(mut, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
+    #[account(mut, has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
 }
@@ -1134,13 +1211,13 @@ pub struct ExpirePermit<'info> {
 #[derive(Accounts)]
 pub struct CommitSettlement<'info> {
     #[account(has_one = controller)]
-    pub policy: Account<'info, SecretPolicy>,
+    pub policy: Box<Account<'info, SecretPolicy>>,
     #[account(mut, has_one = policy, has_one = controller)]
-    pub session: Account<'info, SessionLedger>,
-    #[account(mut, has_one = controller)]
-    pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
-    pub terminal: Account<'info, TerminalMarker>,
+    pub session: Box<Account<'info, SessionLedger>>,
+    #[account(mut, has_one = policy, has_one = session, has_one = controller)]
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
+    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
     /// CHECK: canonical receipt permission PDA.
     #[account(mut, seeds = [PERMISSION_SEED, receipt.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
@@ -1162,13 +1239,13 @@ pub struct CommitSettlement<'info> {
 #[derive(Accounts)]
 pub struct CommitExpiry<'info> {
     #[account(has_one = controller)]
-    pub policy: Account<'info, SecretPolicy>,
+    pub policy: Box<Account<'info, SecretPolicy>>,
     #[account(has_one = policy, has_one = controller)]
-    pub session: Account<'info, SessionLedger>,
-    #[account(mut, has_one = controller)]
-    pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
-    pub terminal: Account<'info, TerminalMarker>,
+    pub session: Box<Account<'info, SessionLedger>>,
+    #[account(mut, has_one = policy, has_one = session, has_one = controller)]
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
+    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
     /// CHECK: canonical receipt permission PDA.
     #[account(mut, seeds = [PERMISSION_SEED, receipt.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
@@ -1204,6 +1281,7 @@ pub struct PolicyPermission<'info> {
     /// CHECK: fixed SDK program.
     #[account(address = MAGIC_PROGRAM_ID)]
     pub magic_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -1246,13 +1324,13 @@ pub struct ReceiptPermission<'info> {
 
 #[derive(Accounts)]
 pub struct FinalizePermit<'info> {
-    #[account(has_one = controller)]
+    #[account(mut, has_one = controller)]
     pub policy: Account<'info, SecretPolicy>,
     #[account(mut, has_one = policy, has_one = controller)]
     pub session: Account<'info, SessionLedger>,
-    #[account(has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
+    #[account(has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, SettlementReceipt>,
-    #[account(seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
 }
@@ -1262,7 +1340,7 @@ pub struct FinalizePermit<'info> {
 pub struct UndelegatePolicy<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = policy.controller == payer.key() @ ErrorCode::UnauthorizedSettlement)]
     pub policy: Account<'info, SecretPolicy>,
 }
 
@@ -1271,7 +1349,7 @@ pub struct UndelegatePolicy<'info> {
 pub struct UndelegateSession<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = session.agent == payer.key() @ ErrorCode::UnauthorizedSettlement)]
     pub session: Account<'info, SessionLedger>,
 }
 
@@ -1338,6 +1416,7 @@ pub struct SecretPolicy {
     pub policy_version: u8,
     pub allowed_program: Pubkey,
     pub allowed_discriminator: [u8; 8],
+    pub allowed_payload_hash: [u8; 32],
     pub allowed_mint: Pubkey,
     pub allowed_recipient: Pubkey,
     pub allowed_source_vault: Pubkey,
@@ -1346,11 +1425,13 @@ pub struct SecretPolicy {
     pub remaining_budget: u64,
     pub expires_at_slot: u64,
     pub next_permit: u64,
+    pub active_permits: u64,
     pub scrubbed: bool,
     pub bump: u8,
 }
 impl SecretPolicy {
-    pub const SPACE: usize = 32 + 8 + 32 + 1 + 32 + 8 + 32 + 32 + 32 + 8 + 32 + 8 + 8 + 8 + 1 + 1;
+    pub const SPACE: usize =
+        32 + 8 + 32 + 1 + 32 + 8 + 32 + 32 + 32 + 32 + 8 + 32 + 8 + 8 + 8 + 8 + 1 + 1;
 }
 
 #[account]
@@ -1491,6 +1572,7 @@ mod tests {
             policy_version: 1,
             allowed_program: Pubkey::default(),
             allowed_discriminator: [1; 8],
+            allowed_payload_hash: [1; 32],
             allowed_mint: Pubkey::default(),
             allowed_recipient: Pubkey::default(),
             allowed_source_vault: Pubkey::default(),
@@ -1499,6 +1581,7 @@ mod tests {
             remaining_budget: 100,
             expires_at_slot: 100,
             next_permit: 0,
+            active_permits: 0,
             scrubbed: false,
             bump: 0,
         }
@@ -1542,9 +1625,165 @@ mod tests {
         )
         .unwrap();
         assert_eq!(policy.remaining_budget, 60);
-        assert!(consume(&mut session, 2, 11).is_err());
-        consume(&mut session, 1, 11).unwrap();
+        assert!(consume(&mut session, 2).is_err());
+        consume(&mut session, 1).unwrap();
         assert_eq!(session.spent_amount, 40);
-        assert!(consume(&mut session, 1, 11).is_err());
+        assert!(consume(&mut session, 1).is_err());
+    }
+
+    #[test]
+    fn typed_policy_rejects_forbidden_action() {
+        let mut policy = policy();
+        let mut session = session();
+        policy.allowed_program = crate::ID;
+        policy.allowed_mint = Pubkey::new_unique();
+        policy.allowed_recipient = Pubkey::new_unique();
+        policy.allowed_source_vault = Pubkey::new_unique();
+        policy.expires_at_slot = 1_000;
+        let mint = policy.allowed_mint;
+        let recipient = policy.allowed_recipient;
+        let source_vault = policy.allowed_source_vault;
+
+        assert!(reserve(
+            &mut policy,
+            &mut session,
+            101,
+            20,
+            crate::ID,
+            [1; 8],
+            [1; 32],
+            recipient,
+            mint,
+            source_vault,
+            10,
+        )
+        .is_err());
+        assert!(reserve(
+            &mut policy,
+            &mut session,
+            1,
+            20,
+            crate::ID,
+            [1; 8],
+            [2; 32],
+            recipient,
+            mint,
+            source_vault,
+            10,
+        )
+        .is_err());
+        assert!(reserve(
+            &mut policy,
+            &mut session,
+            1,
+            20,
+            crate::ID,
+            [1; 8],
+            [1; 32],
+            Pubkey::new_unique(),
+            mint,
+            source_vault,
+            10,
+        )
+        .is_err());
+        assert!(reserve(
+            &mut policy,
+            &mut session,
+            1,
+            20,
+            Pubkey::new_unique(),
+            [1; 8],
+            [1; 32],
+            recipient,
+            mint,
+            source_vault,
+            10,
+        )
+        .is_err());
+        assert!(reserve(
+            &mut policy,
+            &mut session,
+            1,
+            20,
+            crate::ID,
+            [1; 8],
+            [1; 32],
+            recipient,
+            mint,
+            source_vault,
+            10,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn one_hundred_mixed_outcomes_preserve_budget_and_history() {
+        let mut policy = policy();
+        let mut session = session();
+        let mut terminal = TerminalMarker {
+            policy: Pubkey::default(),
+            session: Pubkey::default(),
+            nonce: 0,
+            amount: 0,
+            digest: [0; 32],
+            kind: TerminalKind::Open,
+            history: Vec::new(),
+            bump: 0,
+        };
+        policy.allowed_program = crate::ID;
+        policy.allowed_mint = Pubkey::new_unique();
+        policy.allowed_recipient = Pubkey::new_unique();
+        policy.allowed_source_vault = Pubkey::new_unique();
+        policy.max_permit = 5;
+        policy.remaining_budget = 500;
+        policy.expires_at_slot = 10_000;
+        let mint = policy.allowed_mint;
+        let recipient = policy.allowed_recipient;
+        let source_vault = policy.allowed_source_vault;
+
+        for index in 0..100 {
+            let amount = 5;
+            reserve(
+                &mut policy,
+                &mut session,
+                amount,
+                100,
+                crate::ID,
+                [1; 8],
+                [1; 32],
+                recipient,
+                mint,
+                source_vault,
+                1,
+            )
+            .unwrap();
+            let nonce = session.permit_nonce;
+            let digest = [index as u8 + 1; 32];
+            if index % 2 == 0 {
+                consume(&mut session, nonce).unwrap();
+                terminal.kind = TerminalKind::Spent;
+            } else {
+                policy.remaining_budget = policy
+                    .remaining_budget
+                    .checked_add(session.reserved_amount)
+                    .unwrap();
+                session.reserved_amount = 0;
+                session.state = PermitState::Expired;
+                terminal.kind = TerminalKind::Expired;
+            }
+            policy.active_permits = policy.active_permits.checked_sub(1).unwrap();
+            let kind = terminal.kind;
+            append_terminal_record(&mut terminal, nonce, amount, digest, kind).unwrap();
+        }
+
+        assert_eq!(policy.next_permit, 100);
+        assert_eq!(policy.remaining_budget, 250);
+        assert_eq!(session.spent_amount, 250);
+        assert_eq!(policy.active_permits, 0);
+        assert_eq!(
+            policy.remaining_budget + session.spent_amount + policy.active_permits * 5,
+            500
+        );
+        assert_eq!(terminal.history.len(), 100);
     }
 }

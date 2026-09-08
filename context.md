@@ -48,9 +48,9 @@ PER confidentiality is TEE-backed, not a zero-knowledge proof.
 
 | Account | Location | Purpose |
 | --- | --- | --- |
-| `SecretPolicy` | Solana, then private PER | Controller, policy hash, budget, expiry, permit counter |
+| `SecretPolicy` | Solana, then private PER | Controller, typed policy, budget, expiry, permit counter |
 | `SessionLedger` | Solana, then private PER | Agent identity, reservation, nonce, spent total, state |
-| `SettlementReceipt` | Solana, then private PER | Sanitized recipient, vault, amount, digest, status |
+| `SettlementReceipt` | Solana, then private PER | Sanitized routing metadata, nonce, status; no amount or digest |
 | `TerminalMarker` | Solana | One public `Spent` or `Expired` terminal state |
 | `EphemeralPermission` | MagicBlock PER | Private membership and RPC visibility boundary |
 
@@ -59,9 +59,12 @@ Canonical seeds are `policy/controller/policy_id`,
 
 ## State and instruction rules
 
-Policy configuration is private and bounded. `issue_permit` requires the
-controller, a configured policy, a positive amount, an in-range expiry, and
-enough remaining budget. The policy counter supplies a monotonic nonce.
+The controller co-signs session creation. Policy configuration is private and bounded. The policy permission includes the
+controller and explicitly enrolled agents. `issue_permit` is signed by the
+agent and requires a typed policy match for destination program, discriminator,
+payload commitment, mint, recipient, source vault, amount, expiry, and budget.
+The policy counter supplies a monotonic nonce; only the controller finalizes a
+settled terminal.
 
 The normal payment path is:
 
@@ -71,8 +74,9 @@ Idle → Reserved → Pending receipt → Settled
 Idle → Reserved → Expired receipt → Expired terminal
 ```
 
-`settle_permit` creates a digest-bound pending receipt without consuming the
-reservation. `commit_settlement` attaches the authenticated SPL Magic Action.
+`settle_permit` creates a sanitized pending receipt without consuming the
+reservation. `commit_settlement` attaches the authenticated SPL Magic Action
+and closes the controller-bound receipt permission before publication.
 The action verifies the injected escrow signer, exact vault/recipient/mint,
 open terminal state, and pending receipt before transferring tokens and marking
 the receipt spent. `expire_permit` refunds the reservation only after expiry;
@@ -80,7 +84,8 @@ the receipt spent. `expire_permit` refunds the reservation only after expiry;
 
 Private permissions are created only after delegation and closed before
 scrubbed accounts are undelegated. No secret-bearing delegated account is
-undelegated unsanitized.
+undelegated unsanitized. The configured validator is pinned in each policy,
+session, and receipt delegation; arbitrary validator substitution is rejected.
 
 ## Runtime and configuration
 
@@ -101,4 +106,5 @@ live gate suite must cover sibling reads, direct/batch/subscription/history/
 simulation leakage, settlement authentication, SPL rollback and retry,
 replay, expiry/payment exclusion, and twenty concurrent private sessions
 competing for one remaining budget. Transport benchmarks must not be described
-as permit or action latency.
+as permit or action latency; each passing gate writes a machine-readable
+artifact under `contracts/artifacts/`.

@@ -10,20 +10,23 @@ settlement terminals.
 - A policy is allocated empty on Solana, delegated, permissioned on the ER,
   and configured only after it is private. No budget, policy hash, permit, or
   session data is written to a base-layer account.
-- A controller can configure its policy. An agent can consume only its own
-  granted permit. Sibling agents have no permission membership and cannot read
-  each other's policy or ledger.
-- A permit has one monotonically increasing nonce. Consumption reserves its
-  amount exactly once; replay fails before mutation.
-- A public `TerminalMarker` is mutually exclusive: `spent` and `expired` use
-  the same PDA and cannot both be created.
+- A controller can configure its policy. Enrolled agents can issue only their
+  own typed permit, and the controller finalizes the authenticated terminal.
+  Sibling agents have no permission membership and cannot read each other's
+  policy, ledger, or receipt.
+- A typed policy binds version, destination program and discriminator, token
+  mint, recipient, source vault, per-permit maximum, budget, and expiry. The
+  agent signs issuance; forbidden action fields fail before reservation.
+- A permit has one monotonically increasing nonce. Reservation is separate
+  from settlement, and the bounded terminal history records each spent or
+  expired outcome without allowing a nonce replay.
 - Payment is a Magic Action after a sanitized commit. The action authenticates
   its escrow signer, transfers SPL funds, creates the terminal marker, and
   marks the receipt spent atomically.
 - A failed SPL action leaves the private reservation and pending receipt
   intact. After the source vault is repaired, the receipt is re-delegated and
-  the same commit path can retry it; no budget is consumed until the action
-  succeeds.
+  its controller permission is recreated before retry; no budget is consumed
+  until the action succeeds.
 - Expiry refunds the private budget before an authenticated expiry action
   publishes `TerminalKind::Expired`. The receipt state blocks settlement
   before that action completes, so expiry cannot race a later payment.
@@ -33,15 +36,16 @@ settlement terminals.
 | Account | Location | Public data |
 | --- | --- | --- |
 | `SecretPolicy` | Solana then delegated | controller and PDA metadata only before private configuration |
-| `SecretPolicy` | Private PER | policy hash, budget, expiry, permit nonce |
+| `SecretPolicy` | Private PER | policy hash, typed limits, budget, expiry, permit nonce |
 | `SessionLedger` | Private PER | agent reservation and spent total |
-| `TerminalMarker` | Solana | permit digest and terminal kind only |
+| `SettlementReceipt` | Solana then delegated | routing metadata, nonce, status; no amount or digest |
+| `TerminalMarker` | Solana | permit digest, amount, bounded history, and terminal kind |
 
-A member agent may update and read its own ledger, while an authenticated
-sibling cannot read it by direct or batch TEE RPC, subscriptions, transaction
-messages, or requested simulation output. The tested lifecycle scrubs, closes
-permissions, and undelegates before verifying that base RPC has no reservation
-bytes.
+An enrolled agent may issue and read its own ledger, while an authenticated
+sibling cannot read it or a pending receipt by direct or batch TEE RPC,
+subscriptions, transaction messages, writes, delegation, or requested
+simulation output. The tested lifecycle scrubs, closes permissions, and
+undelegates before verifying that base RPC has no reservation bytes.
 
 ## Current demonstrated slice
 
@@ -58,7 +62,8 @@ SOLANA_RPC_URL=https://rpc.magicblock.app/devnet BENCHMARK_SAMPLES=100 yarn benc
 These live gates cover sibling-read denial, authenticated SPL payment,
 underfunded-action rollback and retry, replay rejection, and expiry/payment
 mutual exclusion, plus twenty private-session contention for one remaining
-budget. The
-operator client polls only public health; the relay transports already-signed
-RPC payloads and has no outcome authority. The benchmark measures only
-`getSlot(confirmed)` transport health, not permit/action latency.
+budget. The operator client polls only public health; the relay transports
+read-only RPC payloads and has no outcome authority. Gate and benchmark runs
+write machine-readable JSON under `contracts/artifacts/`. The benchmark also
+samples public program-account application health and explicitly does not
+claim permit/action latency.

@@ -1,6 +1,8 @@
 .anchor
 .DS_Store
 target
+artifacts
+ci-artifacts
 **/*.rs.bk
 node_modules
 test-ledger

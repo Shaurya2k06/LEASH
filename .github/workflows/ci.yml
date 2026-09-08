@@ -52,7 +52,30 @@ jobs:
         with:
           toolchain: 1.89.0
       - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - name: Install Solana CLI
+        run: sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"
+      - run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install Anchor CLI
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag v1.0.2 anchor-cli --locked
+      - run: anchor --version && solana --version
       - run: yarn install --frozen-lockfile
+      - run: yarn build
       - run: cargo test -p contracts
       - run: yarn typecheck
       - run: yarn lint
+      - run: yarn test:leash
+      - name: Collect contract artifacts
+        if: always()
+        run: |
+          mkdir -p ci-artifacts
+          for file in target/idl/contracts.json target/types/contracts.ts target/deploy/contracts.so; do
+            if [ -f "$file" ]; then cp "$file" ci-artifacts/; fi
+          done
+          if [ -f target/deploy/contracts.so ]; then sha256sum target/deploy/contracts.so > ci-artifacts/program.sha256; fi
+      - name: Upload contract artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leash-contract-artifacts
+          path: contracts/ci-artifacts
+          if-no-files-found: ignore

@@ -12,6 +12,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
+import { writeArtifact } from "./artifact";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -74,10 +75,16 @@ async function send(
   return signature;
 }
 
-async function mustFail(action: Promise<unknown>, message: string) {
+async function mustFailWith(
+  action: Promise<unknown>,
+  expected: string,
+  message: string
+) {
   try {
     await action;
-  } catch (_) {
+  } catch (error) {
+    if (!String(error).toLowerCase().includes(expected.toLowerCase()))
+      throw new Error(`${message}: unexpected error ${String(error)}`);
     return;
   }
   throw new Error(message);
@@ -170,10 +177,11 @@ gate("LEASH expiry terminal gate", () => {
       .accountsPartial({
         agent: agent.publicKey,
         policy,
+        controller: controller.publicKey,
         session,
         systemProgram: web3.SystemProgram.programId,
       })
-      .signers([agent])
+      .signers([agent, controller])
       .rpc();
     await program.methods
       .createSettlementReceipt(
@@ -226,7 +234,7 @@ gate("LEASH expiry terminal gate", () => {
     await send(
       controllerEr,
       await program.methods
-        .initPolicyPermission()
+        .initPolicyPermission([agent.publicKey])
         .accountsPartial({
           controller: controller.publicKey,
           policy,
@@ -234,6 +242,7 @@ gate("LEASH expiry terminal gate", () => {
           magicProgram: MAGIC_PROGRAM_ID,
           permissionProgram: PERMISSION_PROGRAM_ID,
           ephemeralVault: VAULT_ID,
+          systemProgram: web3.SystemProgram.programId,
         })
         .transaction()
     );
@@ -278,6 +287,7 @@ gate("LEASH expiry terminal gate", () => {
           1,
           program.programId,
           ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
           controller.publicKey,
           agent.publicKey,
           controller.publicKey,
@@ -289,7 +299,7 @@ gate("LEASH expiry terminal gate", () => {
         .transaction()
     );
     await send(
-      controllerEr,
+      agentEr,
       await program.methods
         .issuePermit(
           amount,
@@ -358,8 +368,16 @@ gate("LEASH expiry terminal gate", () => {
     }
     if (!expired)
       throw new Error("expiry action did not publish its terminal marker");
+    const publicReceipt = await program.account.settlementReceipt.fetch(
+      receipt
+    );
+    if (
+      Object.prototype.hasOwnProperty.call(publicReceipt, "amount") ||
+      Object.prototype.hasOwnProperty.call(publicReceipt, "digest")
+    )
+      throw new Error("public expiry receipt contains private fields");
 
-    await mustFail(
+    await mustFailWith(
       send(
         controllerEr,
         await program.methods
@@ -373,17 +391,14 @@ gate("LEASH expiry terminal gate", () => {
           })
           .transaction()
       ),
+      "NoReservation",
       "expired permit was accepted for settlement"
     );
-    await mustFail(
+    await mustFailWith(
       send(
         base,
         await program.methods
-          .expireAction(
-            new anchor.BN(1),
-            amount,
-            Array(32).fill(1)
-          )
+          .expireAction(new anchor.BN(1), amount, Array(32).fill(1))
           .accountsPartial({
             receipt,
             terminal,
@@ -393,6 +408,7 @@ gate("LEASH expiry terminal gate", () => {
           })
           .transaction()
       ),
+      "signature",
       "expired terminal marker was replayable"
     );
 
@@ -452,5 +468,14 @@ gate("LEASH expiry terminal gate", () => {
         .accountsPartial({ payer: controller.publicKey, policy })
         .transaction()
     );
+    writeArtifact("leash-expiry-gate.json", {
+      gate: "expiry-terminal",
+      status: "passed",
+      expiredTerminalPublished: true,
+      settlementAfterExpiryRejected: true,
+      expiryReplayRejected: true,
+      publicReceiptHasAmount: false,
+      publicReceiptHasDigest: false,
+    });
   });
 });

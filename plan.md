@@ -3,16 +3,23 @@
 ## 1. Contract kernel
 
 - Keep `SecretPolicy` and `SessionLedger` private in one PER.
-- Use bounded fixed-size account layouts and canonical PDAs.
+- Use bounded account layouts and canonical PDAs; terminal history is a
+  serialized vector capped at 128 records to avoid BPF stack growth.
 - Reserve budget with a checked subtraction and monotonic permit nonce.
-- Keep receipt and terminal state separate so public output is sanitized.
+- Keep receipt and terminal state separate so the public receipt contains only
+  routing metadata, nonce, and status—not amount or digest.
 
 ## 2. Private lifecycle
 
 - Allocate and fund accounts on Solana.
+- Require the policy controller to co-sign session creation so hostile agents
+  cannot self-enroll against another policy.
 - Delegate policy, sessions, and receipts to the selected TEE validator.
-- Create private permissions with only the controller/agent members required.
-- Configure and issue permits only through authenticated controller paths.
+- Create private permissions with the controller and explicitly enrolled agent
+  members required for policy issuance.
+- Configure typed policies privately; issue permits through an enrolled agent signer
+  with exact action, payload, recipient, mint, vault, amount, and expiry
+  checks.
 - Scrub, close permissions, and undelegate only after private state is safe.
 
 ## 3. Settlement and expiry
@@ -43,7 +50,8 @@ among twenty concurrent private sessions.
 ## 5. Operator surface
 
 - Keep the React client read-only: public program health and recorded evidence.
-- Keep the relay transport-only: allowlisted JSON-RPC forwarding, no signing,
+- Keep the relay transport-only: bounded, rate-limited, timeout-bounded,
+  read-only JSON-RPC forwarding with upstream health checks; no signing,
   policy access, or outcome authority.
 - Expose the deployed program ID and trust boundary in the UI.
 
@@ -58,9 +66,9 @@ cd ../client && npm ci && npm run lint && npm run build
 cd ../server && npm ci && npm test
 ```
 
-Run `BENCHMARK_SAMPLES=100 yarn bench:leash` only as a transport-health
-benchmark. Record endpoint, timestamp source, percentiles, failures, and the
-deployed program commit in `docs/evidence.md`.
+Run `BENCHMARK_SAMPLES=100 yarn bench:leash` as transport plus public
+application-health measurement. It writes `artifacts/leash-benchmark.json`
+and still makes no permit/action-latency claim.
 
 ## 7. Submission boundary
 

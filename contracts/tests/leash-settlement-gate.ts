@@ -19,6 +19,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
+import { writeArtifact } from "./artifact";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -82,10 +83,16 @@ async function send(
   return signature;
 }
 
-async function mustFail(action: Promise<unknown>, message: string) {
+async function mustFailWith(
+  action: Promise<unknown>,
+  expected: string,
+  message: string
+) {
   try {
     await action;
-  } catch (_) {
+  } catch (error) {
+    if (!String(error).toLowerCase().includes(expected.toLowerCase()))
+      throw new Error(`${message}: unexpected error ${String(error)}`);
     return;
   }
   throw new Error(message);
@@ -100,6 +107,7 @@ gate("LEASH Magic Action settlement gate", () => {
     ).replace(/\/$/, "");
     const controller = anchor.Wallet.local().payer;
     const agent = web3.Keypair.generate();
+    const sibling = web3.Keypair.generate();
     const base = new anchor.AnchorProvider(
       new web3.Connection(baseEndpoint, { commitment: "confirmed" }),
       new anchor.Wallet(controller)
@@ -146,6 +154,11 @@ gate("LEASH Magic Action settlement gate", () => {
         web3.SystemProgram.transfer({
           fromPubkey: controller.publicKey,
           toPubkey: agent.publicKey,
+          lamports: 10_000_000,
+        }),
+        web3.SystemProgram.transfer({
+          fromPubkey: controller.publicKey,
+          toPubkey: sibling.publicKey,
           lamports: 10_000_000,
         })
       ),
@@ -207,10 +220,11 @@ gate("LEASH Magic Action settlement gate", () => {
       .accountsPartial({
         agent: agent.publicKey,
         policy,
+        controller: controller.publicKey,
         session,
         systemProgram: web3.SystemProgram.programId,
       })
-      .signers([agent])
+      .signers([agent, controller])
       .rpc();
     await program.methods
       .createSettlementReceipt(
@@ -260,10 +274,11 @@ gate("LEASH Magic Action settlement gate", () => {
 
     const controllerEr = await providerFor(teeEndpoint, controller);
     const agentEr = await providerFor(teeEndpoint, agent);
+    const siblingEr = await providerFor(teeEndpoint, sibling);
     await send(
       controllerEr,
       await program.methods
-        .initPolicyPermission()
+        .initPolicyPermission([agent.publicKey])
         .accountsPartial({
           controller: controller.publicKey,
           policy,
@@ -271,6 +286,7 @@ gate("LEASH Magic Action settlement gate", () => {
           magicProgram: MAGIC_PROGRAM_ID,
           permissionProgram: PERMISSION_PROGRAM_ID,
           ephemeralVault: VAULT_ID,
+          systemProgram: web3.SystemProgram.programId,
         })
         .transaction()
     );
@@ -312,6 +328,7 @@ gate("LEASH Magic Action settlement gate", () => {
           1,
           program.programId,
           ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
           mint,
           agent.publicKey,
           sourceVault.address,
@@ -323,7 +340,7 @@ gate("LEASH Magic Action settlement gate", () => {
         .transaction()
     );
     await send(
-      controllerEr,
+      agentEr,
       await program.methods
         .issuePermit(
           amount,
@@ -339,7 +356,7 @@ gate("LEASH Magic Action settlement gate", () => {
         .transaction()
     );
 
-    await mustFail(
+    await mustFailWith(
       send(
         base,
         await program.methods
@@ -357,12 +374,13 @@ gate("LEASH Magic Action settlement gate", () => {
           })
           .transaction()
       ),
+      "signature",
       "direct Magic Action invocation unexpectedly succeeded"
     );
 
     const before = (await getAccount(base.connection, recipientToken.address))
       .amount;
-    await send(
+    const settleSignature = await send(
       controllerEr,
       await program.methods
         .settlePermit()
@@ -375,6 +393,133 @@ gate("LEASH Magic Action settlement gate", () => {
         })
         .transaction()
     );
+    const controllerReceipt = await controllerEr.connection.getAccountInfo(
+      receipt
+    );
+    if (!controllerReceipt)
+      throw new Error("controller could not read the pending receipt");
+    const baseReceipt = await base.connection.getAccountInfo(receipt);
+    if (baseReceipt) {
+      const publicState = program.coder.accounts.decode(
+        "settlementReceipt",
+        baseReceipt.data
+      );
+      if (
+        publicState.nonce.toNumber() !== 0 ||
+        publicState.status.empty === undefined
+      )
+        throw new Error("base RPC observed pending receipt state");
+    }
+    if (await siblingEr.connection.getAccountInfo(receipt))
+      throw new Error("sibling token read the pending receipt");
+    if (
+      (await siblingEr.connection.getMultipleAccountsInfo([receipt])).some(
+        Boolean
+      )
+    )
+      throw new Error("sibling batch read the pending receipt");
+    let receiptSubscriptionLeaked = false;
+    let receiptSubscriptionId: number | undefined;
+    try {
+      receiptSubscriptionId = await siblingEr.connection.onAccountChange(
+        receipt,
+        () => {
+          receiptSubscriptionLeaked = true;
+        },
+        "confirmed"
+      );
+    } catch (error) {
+      throw new Error(
+        `receipt subscription RPC is unavailable: ${String(error)}`
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    if (receiptSubscriptionLeaked)
+      throw new Error("sibling subscription returned the pending receipt");
+    if (receiptSubscriptionId !== undefined)
+      await siblingEr.connection.removeAccountChangeListener(
+        receiptSubscriptionId
+      );
+    const pendingTransaction = await siblingEr.connection.getTransaction(
+      settleSignature,
+      { maxSupportedTransactionVersion: 0 }
+    );
+    if (!pendingTransaction)
+      throw new Error(
+        "sibling transaction RPC returned null for receipt commit"
+      );
+    if (
+      pendingTransaction.transaction.message.compiledInstructions.some(
+        (instruction) =>
+          Buffer.from(instruction.data).indexOf(
+            amount.toArrayLike(Buffer, "le", 8)
+          ) >= 0
+      )
+    )
+      throw new Error("sibling transaction RPC returned pending receipt data");
+    await mustFailWith(
+      send(
+        siblingEr,
+        await program.methods
+          .settlePermit()
+          .accountsPartial({
+            policy,
+            session,
+            receipt,
+            terminal,
+            controller: sibling.publicKey,
+          })
+          .transaction()
+      ),
+      "permission",
+      "sibling wrote the pending receipt"
+    );
+    await mustFailWith(
+      send(
+        siblingEr,
+        await program.methods
+          .delegateReceipt(session)
+          .accountsPartial({
+            controller: sibling.publicKey,
+            receipt,
+            validator: TEE_VALIDATOR,
+          })
+          .transaction()
+      ),
+      "permission",
+      "sibling delegated the pending receipt"
+    );
+    const receiptSimulation = await program.methods
+      .settlePermit()
+      .accountsPartial({
+        policy,
+        session,
+        receipt,
+        terminal,
+        controller: sibling.publicKey,
+      })
+      .transaction();
+    receiptSimulation.feePayer = sibling.publicKey;
+    receiptSimulation.recentBlockhash = (
+      await siblingEr.connection.getLatestBlockhash()
+    ).blockhash;
+    const simulatedReceipt = await siblingEr.connection.simulateTransaction(
+      await siblingEr.wallet.signTransaction(receiptSimulation),
+      [],
+      [receipt]
+    );
+    if (!simulatedReceipt || !simulatedReceipt.value.err)
+      throw new Error("sibling simulation unexpectedly accepted the receipt");
+    if (
+      !JSON.stringify(simulatedReceipt.value.err)
+        .toLowerCase()
+        .includes("permission")
+    )
+      throw new Error(
+        `sibling receipt simulation returned an unexpected error: ${JSON.stringify(
+          simulatedReceipt.value.err
+        )}`
+      );
     const failedSettleSignature = await send(
       controllerEr,
       await program.methods
@@ -393,7 +538,6 @@ gate("LEASH Magic Action settlement gate", () => {
         })
         .transaction()
     );
-
     let schedulerSignature: string | undefined;
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const scheduled = await controllerEr.connection.getTransaction(
@@ -523,6 +667,14 @@ gate("LEASH Magic Action settlement gate", () => {
     }
     if (!settled)
       throw new Error("Magic Action retry did not settle the receipt");
+    const publicReceipt = await program.account.settlementReceipt.fetch(
+      receipt
+    );
+    if (
+      Object.prototype.hasOwnProperty.call(publicReceipt, "amount") ||
+      Object.prototype.hasOwnProperty.call(publicReceipt, "digest")
+    )
+      throw new Error("public settlement receipt contains private fields");
 
     await send(
       controllerEr,
@@ -546,7 +698,7 @@ gate("LEASH Magic Action settlement gate", () => {
     if (spent.state.spent === undefined)
       throw new Error("successful payment did not consume the reservation");
 
-    await mustFail(
+    await mustFailWith(
       send(
         base,
         await program.methods
@@ -564,6 +716,7 @@ gate("LEASH Magic Action settlement gate", () => {
           })
           .transaction()
       ),
+      "signature",
       "replayed Magic Action unexpectedly succeeded"
     );
 
@@ -623,5 +776,14 @@ gate("LEASH Magic Action settlement gate", () => {
         .accountsPartial({ payer: controller.publicKey, policy })
         .transaction()
     );
+    writeArtifact("leash-settlement-gate.json", {
+      gate: "authenticated-settlement",
+      status: "passed",
+      failedActionPreservedReservation: true,
+      retryPaidOnce: true,
+      replayRejected: true,
+      publicReceiptHasAmount: false,
+      publicReceiptHasDigest: false,
+    });
   });
 });

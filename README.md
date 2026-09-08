@@ -26,11 +26,14 @@ need your local funded devnet wallet:
 export ANCHOR_WALLET=/absolute/path/to/your/solana-wallet.json
 export SOLANA_RPC_URL=https://rpc.magicblock.app/devnet
 export MB_TEE_RPC_URL=https://devnet-tee.magicblock.app
+export MB_TEE_VALIDATOR=MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo
 ```
 
 Copy [`client/.env.example`](./client/.env.example) and
 [`server/.env.example`](./server/.env.example) when overriding browser or
-relay defaults. Never commit the wallet file or TEE token.
+relay defaults. The relay only forwards read-only RPC methods; set
+`ALLOWED_ORIGIN`, `UPSTREAM_TIMEOUT_MS`, and `RELAY_RATE_LIMIT` for a deployed
+instance. Never commit the wallet file or TEE token.
 
 Then validate the current slice:
 
@@ -51,11 +54,15 @@ yarn test:leash:race
 BENCHMARK_SAMPLES=100 yarn bench:leash
 ```
 
-The contracts pin Rust 1.89.0 and Anchor 1.0.2. The sibling-read gate,
-authenticated SPL settlement gate, failed-payment retry, expiry terminal gate,
-and twenty-session budget race pass against the deployed devnet TEE binary.
-The relay only forwards allowlisted JSON-RPC payloads; it cannot sign or choose
-an outcome.
+The contracts pin Rust 1.89.0, Solana CLI 3.1.9, and Anchor 1.0.2. Historical
+sibling-read, settlement, expiry, and twenty-session race runs passed against a
+previous devnet binary; redeploy the current source before treating new gate
+artifacts as live evidence.
+The relay only forwards allowlisted read-only JSON-RPC payloads, rate-limits
+callers, bounds request and response sizes, checks upstream health, and cannot
+sign or choose an outcome. Set `UPSTREAM_RESPONSE_BYTES` as well when deploying
+the relay. Passing
+gates and benchmarks write JSON artifacts under `contracts/artifacts/`.
 
 [`.env.example`](./.env.example) contains the public contract defaults and
 local wallet placeholder. Do not put keypairs or TEE authorization tokens in

@@ -1,18 +1,22 @@
 # LEASH evidence ledger
 
-| Claim | Test / script | Cluster / endpoint | Program commit | Sample count | Result | Artifact | Status |
-| --- | --- | --- | --- | ---: | --- | --- | --- |
-| Reproducible Anchor build | `cargo test`, `anchor build` | Local | `6ee37a0` | 1 | Passed | Local build output | Demonstrated locally |
-| LEASH policy kernel deployment | `anchor deploy --provider.cluster https://rpc.magicblock.app/devnet -- --use-rpc` | `rpc.magicblock.app/devnet` | `6ee37a0` | 1 | Passed; current binary includes settlement and expiry actions | Program `3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`; deploy signature `5fA8DRuV9sHNXKJARrCNjPQxXJDXzouFKTTJHkXvZszb1NFAGTcaXohQHs1A523CF9jJLYe9ykVeJE7MYb3noWWV` | Demonstrated on devnet |
-| LEASH sibling-read gate | `contracts/tests/leash-per-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `6ee37a0` | 1 | Passed: agent read/consumed its own ledger; base and authenticated sibling direct/batch/subscription/transaction/simulation paths did not reveal the reservation; scrub/close/undelegate did not commit it to base | Live test output, 2026-09-08 | Demonstrated on devnet |
-| LEASH authenticated SPL settlement | `contracts/tests/leash-settlement-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `6ee37a0` | 1 | Passed: direct action invocation rejected; an underfunded action left the reservation, receipt, marker, and recipient balance unchanged; refunding the vault and re-delegating the pending receipt paid once; replay rejected | Live test output, 2026-09-08 | Demonstrated on devnet |
-| LEASH expiry terminal race | `contracts/tests/leash-expiry-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `6ee37a0` | 1 | Passed: expired private permit refunded budget, authenticated expiry action published `TerminalKind::Expired`, later settlement failed, and expiry replay failed | Live test output, 2026-09-08 | Demonstrated on devnet |
-| LEASH twenty-session budget race | `contracts/tests/leash-race-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `870a41b` | 1 × 20 private sessions | Passed in 54.6s: one reservation won the exact remaining budget; nineteen losing sessions retained zero reservation; private teardown completed | Live test output, 2026-09-08 | Demonstrated on devnet |
-| LEASH operator view / transport relay | `npm run lint && npm run build`; `npm test`; `/health` and invalid `/relay` checks | Local | `870a41b` | 1 | Passed: browser polls public program health only; relay reports `authoritative:false`, forwards only allowlisted JSON-RPC methods, and rejects unsupported methods | Local build and smoke output | Demonstrated locally |
-| LEASH transport benchmark | `BENCHMARK_SAMPLES=100 yarn bench:leash` | `rpc.magicblock.app/devnet` + Devnet TEE | `4a4b565` | 100 per endpoint | `getSlot(confirmed)` round trips, 0 failures: base p50/p95/p99 88.27/99.70/103.91 ms; TEE 72.39/83.21/114.37 ms. This is transport health, not action latency. | Live benchmark output, 2026-09-08 | Demonstrated as measured transport health |
+Evidence is tied to the source revision that produced it. The previous
+devnet runs in this repository used the pre-audit binary and are retained only
+as historical context; redeploy the current program before calling the live
+gates demonstrated.
 
-The deployed LEASH binary is `3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`.
-Sibling-read, settlement, rollback, replay, expiry, and twenty-session
-contention claims are demonstrated on devnet. The transport benchmark is not a
-permit/action latency measurement; organizer-specific submission fields remain
-owner verification items.
+| Claim | Test / script | Environment | Revision | Result | Artifact | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| Anchor build | `PATH="$HOME/.avm/bin:$PATH" anchor build` | Local, Rust 1.89.0 / Anchor 1.0.2 / Solana 3.1.9 | current source | Passed with the BPF stack checker | build output | Demonstrated locally |
+| Contract unit invariants | `cargo test -p contracts` | Local | current source | Typed-action rejection, single-use consumption, and 100 mixed terminal outcomes pass | test output | Demonstrated locally |
+| TypeScript gate migration | `yarn typecheck && yarn lint` | Local | current source | Passed; gates use agent-signed typed issuance, receipt permission, terminal accounts, and finalization | test output | Demonstrated locally |
+| Relay hardening | `npm test` | Local Node 22 | current source | Read-only allowlist, request size handling, upstream timeout/health, CORS restriction, and rate limiting pass | test output | Demonstrated locally |
+| Operator cockpit | `npm run lint && npm run build` | Local Node 22 | current source | Passed; UI labels public RPC health and recorded CLI evidence separately from TEE execution | build output | Demonstrated locally |
+| Live sibling-read / settlement / expiry / race gates | `yarn test:leash:*` | Devnet + authenticated TEE | redeploy required | Existing historical runs passed before the audit redesign; they do not certify the current binary | `contracts/artifacts/*.json` after rerun | Pending redeploy |
+| Transport + application-health benchmark | `BENCHMARK_SAMPLES=100 yarn bench:leash` | Devnet + authenticated TEE | current source | Writes transport and public program-account application samples; makes no action-latency claim | `contracts/artifacts/leash-benchmark.json` | Run on demand |
+
+The program ID is
+`3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`. Gate and benchmark artifacts
+are intentionally ignored because they contain run-specific endpoints and
+timestamps; they must not contain wallets, TEE tokens, or private account
+payloads.
