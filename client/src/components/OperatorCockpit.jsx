@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import DemoProofTape from './DemoProofTape'
 
 const gateRowsFor = (evidence) => {
   const gates = evidence?.gates || {}
@@ -45,6 +46,8 @@ export default function OperatorCockpit({
   evidenceError,
   onRefresh,
   onBackToLanding,
+  demo,
+  demoError,
 }) {
   const [selectedGate, setSelectedGate] = useState(null)
   const gates = gateRowsFor(evidence)
@@ -141,6 +144,8 @@ export default function OperatorCockpit({
             </p>
           )}
         </section>
+
+        <DemoProofTape demo={demo} demoError={demoError} compact />
       </div>
     </main>
   )

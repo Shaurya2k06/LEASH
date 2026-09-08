@@ -32,12 +32,16 @@ export default function App() {
   })
   const [evidence, setEvidence] = useState(null)
   const [evidenceError, setEvidenceError] = useState('')
+  const [demo, setDemo] = useState(null)
+  const [demoError, setDemoError] = useState('')
 
   const refresh = useCallback(async () => {
     setRuntime((current) => ({ ...current, state: 'CHECKING', error: '' }))
     setEvidenceError('')
+    setDemoError('')
     if (!programId || !rpcUrl || !relayUrl) {
       setEvidence(null)
+      setDemo(null)
       setEvidenceError('Public client configuration is incomplete.')
       setRuntime({
         state: 'CONFIG MISSING',
@@ -49,7 +53,7 @@ export default function App() {
       return
     }
 
-    const [slotResult, accountResult, relayResult, evidenceResult] = await Promise.allSettled([
+    const [slotResult, accountResult, relayResult, evidenceResult, demoResult] = await Promise.allSettled([
       rpc('getSlot', [{ commitment: 'confirmed' }]),
       rpc('getAccountInfo', [programId, { encoding: 'base64', commitment: 'confirmed' }]),
       fetch(`${relayUrl}/health`).then((response) => {
@@ -58,6 +62,10 @@ export default function App() {
       }),
       fetch('/evidence.json', { cache: 'no-store' }).then(async (response) => {
         if (!response.ok) throw new Error(`Evidence manifest failed (${response.status})`)
+        return response.json()
+      }),
+      fetch('/demo.json', { cache: 'no-store' }).then(async (response) => {
+        if (!response.ok) throw new Error(`Demo artifact failed (${response.status})`)
         return response.json()
       }),
     ])
@@ -88,6 +96,18 @@ export default function App() {
       setEvidence(null)
       setEvidenceError(evidenceResult.reason?.message || String(evidenceResult.reason))
     }
+    if (demoResult.status === 'fulfilled') {
+      const artifact = demoResult.value
+      if (artifact.program?.id !== programId) {
+        setDemo(null)
+        setDemoError('Demo artifact program does not match VITE_PROGRAM_ID.')
+      } else {
+        setDemo(artifact)
+      }
+    } else {
+      setDemo(null)
+      setDemoError(demoResult.reason?.message || String(demoResult.reason))
+    }
   }, [])
 
   useEffect(() => {
@@ -103,6 +123,8 @@ export default function App() {
         rpcUrl={rpcUrl}
         evidence={evidence}
         evidenceError={evidenceError}
+        demo={demo}
+        demoError={demoError}
         onRefresh={refresh}
         onBackToLanding={() => {
           setViewMode('landing')
@@ -123,6 +145,8 @@ export default function App() {
       programId={programId}
       evidence={evidence}
       evidenceError={evidenceError}
+      demo={demo}
+      demoError={demoError}
     />
   )
 }

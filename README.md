@@ -18,6 +18,24 @@ cd client && npm run dev
 The browser view only polls public program health and displays recorded gate
 outcomes. It does not fetch private policy/session accounts or sign outcomes.
 
+## Publish a real end-to-end demo tape
+
+The demo runner uses the local Anchor wallet and TEE credentials on the trusted
+operator machine. It creates a fresh policy/session, executes one authenticated
+SPL settlement, proves privacy and replay rejection, scrubs the private state,
+and writes public transaction/account links to `client/public/demo.json`:
+
+```sh
+cd contracts
+yarn build
+yarn demo:leash
+cd ../client && npm run lint && npm run build
+```
+
+The generated artifact is safe for the browser: it contains no wallet,
+authorization token, private amount, or digest. Deploy the client after running
+the demo to publish the proof tape.
+
 ## Configure and validate
 
 The checked-in examples describe the public configuration. For local use, copy

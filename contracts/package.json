@@ -10,7 +10,8 @@
     "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
     "test:leash:expiry": "LEASH_EXPIRY_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts",
     "test:leash:race": "LEASH_RACE_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-race-gate.ts",
-    "bench:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-benchmark.ts"
+    "bench:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-benchmark.ts",
+    "demo:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-demo.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",

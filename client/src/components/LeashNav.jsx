@@ -22,6 +22,15 @@ export default function LeashNav({ onOpenCockpit }) {
             <button
               type="button"
               className="leash-nav-link"
+              onClick={() => scrollTo('live-demo')}
+            >
+              Live Demo
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className="leash-nav-link"
               onClick={() => scrollTo('threat-model')}
             >
               Threat Matrix

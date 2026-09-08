@@ -32,6 +32,13 @@ export default function LeashHero({ runtime, programId, evidence, onOpenCockpit 
         </button>
         <button
           type="button"
+          className="leash-btn-secondary"
+          onClick={() => scrollToTarget('#live-demo')}
+        >
+          Watch Live Devnet Demo
+        </button>
+        <button
+          type="button"
           className="leash-btn-ghost"
           onClick={() => scrollToTarget('#threat-model')}
         >
