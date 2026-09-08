@@ -1,4 +1,4 @@
-# LEASH / BLACKOUT submission checklist
+# LEASH submission checklist
 
 Last checked: 2026-09-08
 

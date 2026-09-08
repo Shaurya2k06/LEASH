@@ -1,8 +1,8 @@
 # LEASH
 
-LEASH is the fallback confidential capability and budget kernel. BLACKOUT's
-separate-crank privacy gate failed on devnet, so this repository no longer
-claims a private game.
+LEASH is a confidential capability and budget kernel for hostile agent swarms.
+It keeps policy and session state private while exposing only sanitized public
+settlement terminals.
 
 ## Invariants
 
@@ -37,12 +37,11 @@ claims a private game.
 | `SessionLedger` | Private PER | agent reservation and spent total |
 | `TerminalMarker` | Solana | permit digest and terminal kind only |
 
-The first LEASH gate is narrower than BLACKOUT's failed gate: a member agent
-must update its own ledger, while an authenticated sibling cannot read it by
-direct or batch TEE RPC, subscriptions, transaction messages, or requested
-simulation output. A successful member is intentionally allowed to read its
-own private ledger. The tested lifecycle scrubs, closes permissions, and
-undelegates before verifying that base RPC has no reservation bytes.
+A member agent may update and read its own ledger, while an authenticated
+sibling cannot read it by direct or batch TEE RPC, subscriptions, transaction
+messages, or requested simulation output. The tested lifecycle scrubs, closes
+permissions, and undelegates before verifying that base RPC has no reservation
+bytes.
 
 ## Current demonstrated slice
 

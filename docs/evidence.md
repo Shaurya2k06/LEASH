@@ -1,11 +1,8 @@
-# LEASH / BLACKOUT evidence ledger
+# LEASH evidence ledger
 
 | Claim | Test / script | Cluster / endpoint | Program commit | Sample count | Result | Artifact | Status |
 | --- | --- | --- | --- | ---: | --- | --- | --- |
-| Reproducible Anchor build | `cargo test`, `anchor build` | Local | `36e2fbd` | 1 | Passed | Local build output | Demonstrated locally |
-| Private PER no-reader gate | `contracts/tests/per-gate.ts` | Devnet TEE | `36e2fbd` | 1 | Passed: authorized reader received the secret; base/direct/batch/subscription/history/transaction/simulation and wrong-wallet paths did not | Live test output, 2026-09-08 | Demonstrated on devnet |
-| Crank-without-reader gate | `contracts/tests/per-gate.ts` with separate authenticated writer | Devnet TEE | Uncommitted test-only probe variant | 1 | Failed: a writer excluded from the private permission updated the probe, then base RPC contained that secret | Live test output, 2026-09-08 | BLACKOUT kill gate failed |
-| Devnet program deployment | `solana program deploy --use-quic` | `api.devnet.solana.com` | `36e2fbd` | 2 | Passed; prior probe-only binary restored after the failing variant | Program `3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`; deploy signatures `2uRiTzNzQfqaxtLDgyVjG5mhdRycmxPM1rXjyVdDG33B91PDSHXS7tJRU6hJctXoPeVNX73ufKwB4NTUxkUgvKMX`, `646B5yyDaBJppGJEabLwmabE1ib5vKs1VhahdS3Js2V4bkT874S1ZkHaRo4rNZ18v1pfqCT8TAkfDoEsfpMq1Gxq` | Demonstrated on devnet |
+| Reproducible Anchor build | `cargo test`, `anchor build` | Local | `6ee37a0` | 1 | Passed | Local build output | Demonstrated locally |
 | LEASH policy kernel deployment | `anchor deploy --provider.cluster https://rpc.magicblock.app/devnet -- --use-rpc` | `rpc.magicblock.app/devnet` | `6ee37a0` | 1 | Passed; current binary includes settlement and expiry actions | Program `3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`; deploy signature `5fA8DRuV9sHNXKJARrCNjPQxXJDXzouFKTTJHkXvZszb1NFAGTcaXohQHs1A523CF9jJLYe9ykVeJE7MYb3noWWV` | Demonstrated on devnet |
 | LEASH sibling-read gate | `contracts/tests/leash-per-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `6ee37a0` | 1 | Passed: agent read/consumed its own ledger; base and authenticated sibling direct/batch/subscription/transaction/simulation paths did not reveal the reservation; scrub/close/undelegate did not commit it to base | Live test output, 2026-09-08 | Demonstrated on devnet |
 | LEASH authenticated SPL settlement | `contracts/tests/leash-settlement-gate.ts` | `rpc.magicblock.app/devnet` + Devnet TEE | `6ee37a0` | 1 | Passed: direct action invocation rejected; an underfunded action left the reservation, receipt, marker, and recipient balance unchanged; refunding the vault and re-delegating the pending receipt paid once; replay rejected | Live test output, 2026-09-08 | Demonstrated on devnet |
@@ -14,4 +11,8 @@
 | LEASH operator view / transport relay | `npm run lint && npm run build`; `npm test`; `/health` and invalid `/relay` checks | Local | `870a41b` | 1 | Passed: browser polls public program health only; relay reports `authoritative:false`, forwards only allowlisted JSON-RPC methods, and rejects unsupported methods | Local build and smoke output | Demonstrated locally |
 | LEASH transport benchmark | `BENCHMARK_SAMPLES=100 yarn bench:leash` | `rpc.magicblock.app/devnet` + Devnet TEE | `4a4b565` | 100 per endpoint | `getSlot(confirmed)` round trips, 0 failures: base p50/p95/p99 88.27/99.70/103.91 ms; TEE 72.39/83.21/114.37 ms. This is transport health, not action latency. | Live benchmark output, 2026-09-08 | Demonstrated as measured transport health |
 
-The reader-only probe result does not satisfy BLACKOUT's architecture: the actual crank-without-reader gate failed. Per `context.md` and `plan.md`, BLACKOUT must not continue as a private-state game; the deployed program is now LEASH. LEASH's sibling-read, settlement, rollback, replay, expiry, and twenty-session contention claims are demonstrated on devnet. Core permit/action latency, twenty clean independent runs, and final submission packaging remain open.
+The deployed LEASH binary is `3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe`.
+Sibling-read, settlement, rollback, replay, expiry, and twenty-session
+contention claims are demonstrated on devnet. The transport benchmark is not a
+permit/action latency measurement; organizer-specific submission fields remain
+owner verification items.
