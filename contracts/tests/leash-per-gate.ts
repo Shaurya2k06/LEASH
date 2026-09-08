@@ -10,7 +10,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { writeArtifact } from "./artifact";
+import { requiredEnv, writeArtifact } from "./artifact";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -19,9 +19,7 @@ const TERMINAL_SEED = "terminal";
 const VAULT_ID = new web3.PublicKey(
   "MagicVau1t999999999999999999999999999999999"
 );
-const TEE_VALIDATOR = new web3.PublicKey(
-  process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
-);
+const TEE_VALIDATOR = new web3.PublicKey(requiredEnv("MB_TEE_VALIDATOR"));
 const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
 const PAYLOAD_HASH = Array(32).fill(8);
 const gate = process.env.LEASH_PER_TEST === "1" ? describe : describe.skip;
@@ -73,11 +71,8 @@ async function mustFailWith(
 
 gate("LEASH TEE sibling-read gate", () => {
   it("allows an agent ledger while denying a sibling", async () => {
-    const baseEndpoint =
-      process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
-    const teeEndpoint = (
-      process.env.MB_TEE_RPC_URL || "https://devnet-tee.magicblock.app"
-    ).replace(/\/$/, "");
+    const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
+    const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
     const controller = anchor.Wallet.local().payer;
     const agent = web3.Keypair.generate();
     const sibling = web3.Keypair.generate();

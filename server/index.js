@@ -3,7 +3,6 @@ require('dotenv').config()
 const cors = require('cors')
 const express = require('express')
 
-const DEFAULT_RPC_URL = 'https://rpc.magicblock.app/devnet'
 const DEFAULT_TIMEOUT_MS = 5000
 const DEFAULT_RATE_LIMIT = 60
 const DEFAULT_UPSTREAM_RESPONSE_BYTES = 1024 * 1024
@@ -16,7 +15,7 @@ const relayMethods = new Set([
 ])
 
 function createApp(options = {}) {
-  const rpcUrl = options.rpcUrl || process.env.SOLANA_RPC_URL || DEFAULT_RPC_URL
+  const rpcUrl = options.rpcUrl || process.env.SOLANA_RPC_URL
   const fetchImpl = options.fetchImpl || fetch
   const timeoutMs = options.timeoutMs || Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   const maxResponseBytes = options.maxResponseBytes || Number(process.env.UPSTREAM_RESPONSE_BYTES || DEFAULT_UPSTREAM_RESPONSE_BYTES)

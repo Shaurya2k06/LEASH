@@ -5,12 +5,12 @@
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "typecheck": "tsc --noEmit",
-    "test:leash": "ts-mocha -p ./tsconfig.json -t 1000000 tests/leash.ts",
-    "test:leash:per": "LEASH_PER_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts",
-    "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
-    "test:leash:expiry": "LEASH_EXPIRY_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts",
-    "test:leash:race": "LEASH_RACE_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-race-gate.ts",
-    "bench:leash": "ts-node scripts/leash-benchmark.ts"
+    "test:leash": "node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash.ts",
+    "test:leash:per": "LEASH_PER_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts",
+    "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
+    "test:leash:expiry": "LEASH_EXPIRY_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts",
+    "test:leash:race": "LEASH_RACE_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-race-gate.ts",
+    "bench:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-benchmark.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",

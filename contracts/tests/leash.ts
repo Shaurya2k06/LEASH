@@ -1,8 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
+import { requiredEnv } from "./artifact";
 
-const PROGRAM_ID = new PublicKey(
-  "3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe"
-);
+const PROGRAM_ID = new PublicKey(requiredEnv("LEASH_PROGRAM_ID"));
 
 describe("LEASH PDA layout", () => {
   it("derives isolated policy and agent session addresses", () => {

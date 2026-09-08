@@ -9,15 +9,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 
-const baseEndpoint =
-  process.env.SOLANA_RPC_URL || "https://rpc.magicblock.app/devnet";
-const teeEndpoint = (
-  process.env.MB_TEE_RPC_URL || "https://devnet-tee.magicblock.app"
-).replace(/\/$/, "");
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
+const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
 const samples = Number(process.env.BENCHMARK_SAMPLES || 100);
-const programId = new web3.PublicKey(
-  process.env.LEASH_PROGRAM_ID || "3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe"
-);
+const programId = new web3.PublicKey(requiredEnv("LEASH_PROGRAM_ID"));
 
 function percentile(values: number[], percentage: number) {
   const rank = Math.max(0, Math.ceil((percentage / 100) * values.length) - 1);

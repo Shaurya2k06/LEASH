@@ -20,15 +20,17 @@ outcomes. It does not fetch private policy/session accounts or sign outcomes.
 
 ## Configure and validate
 
-The client and relay run with public defaults. Live contract gates additionally
-need your local funded devnet wallet:
+The checked-in examples describe the public configuration. For local use, copy
+them into the ignored env files:
 
 ```sh
-export ANCHOR_WALLET=/absolute/path/to/your/solana-wallet.json
-export SOLANA_RPC_URL=https://rpc.magicblock.app/devnet
-export MB_TEE_RPC_URL=https://devnet-tee.magicblock.app
-export MB_TEE_VALIDATOR=MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo
+cp .env.example .env
+cp client/.env.example client/.env
+cp server/.env.example server/.env
 ```
+
+Live contract gates additionally need your funded devnet wallet:
+`ANCHOR_WALLET=/absolute/path/to/your/solana-wallet.json`.
 
 Copy [`client/.env.example`](./client/.env.example) and
 [`server/.env.example`](./server/.env.example) when overriding browser or

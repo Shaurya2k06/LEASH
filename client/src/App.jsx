@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 
-const programId = import.meta.env.VITE_PROGRAM_ID || '3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe'
-const rpcUrl = import.meta.env.VITE_SOLANA_RPC_URL || 'https://rpc.magicblock.app/devnet'
-const relayUrl = import.meta.env.VITE_RELAY_URL || 'http://localhost:8787'
+const programId = import.meta.env.VITE_PROGRAM_ID || ''
+const rpcUrl = import.meta.env.VITE_SOLANA_RPC_URL || ''
+const relayUrl = import.meta.env.VITE_RELAY_URL || ''
 
 const attacks = [
   { label: 'Sibling ledger read', detail: 'GET /session + batch', result: 'Denied', tone: 'danger' },
