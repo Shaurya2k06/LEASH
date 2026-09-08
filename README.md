@@ -33,6 +33,8 @@ ANCHOR_WALLET=/path/to/wallet.json \
 SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:expiry
 ANCHOR_WALLET=/path/to/wallet.json \
 SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:race
+ANCHOR_WALLET=/path/to/wallet.json \
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet BENCHMARK_SAMPLES=100 yarn bench:leash
 ```
 
 The contracts pin Rust 1.89.0 and Anchor 1.0.2. The sibling-read privacy gate,
