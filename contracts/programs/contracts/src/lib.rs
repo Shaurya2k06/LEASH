@@ -774,6 +774,9 @@ pub struct SettleAction<'info> {
     #[account(address = receipt.mint)]
     pub mint: Box<Account<'info, anchor_spl::token::Mint>>,
     pub token_program: Program<'info, Token>,
+    /// CHECK: fixed source-program account injected by the delegation program.
+    #[account(address = crate::ID)]
+    pub source_program: UncheckedAccount<'info>,
     /// CHECK: MagicBlock binds this account to the action's escrow PDA.
     #[account(address = receipt.controller)]
     pub escrow_auth: UncheckedAccount<'info>,

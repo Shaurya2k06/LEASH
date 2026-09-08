@@ -315,6 +315,7 @@ gate("LEASH Magic Action settlement gate", () => {
             recipientToken: recipientToken.address,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
+            sourceProgram: program.programId,
             escrowAuth: controller.publicKey,
             escrow,
           })
@@ -389,6 +390,7 @@ gate("LEASH Magic Action settlement gate", () => {
             recipientToken: recipientToken.address,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
+            sourceProgram: program.programId,
             escrowAuth: controller.publicKey,
             escrow,
           })
