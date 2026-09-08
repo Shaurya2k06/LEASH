@@ -777,8 +777,14 @@ pub struct SettleAction<'info> {
     /// CHECK: MagicBlock binds this account to the action's escrow PDA.
     #[account(address = receipt.controller)]
     pub escrow_auth: UncheckedAccount<'info>,
-    /// CHECK: MagicBlock injects the escrow PDA and signs for it in the action CPI.
-    #[account(address = ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer(&escrow_auth.key(), ACTION_ESCROW_INDEX))]
+    /// CHECK: Only MagicBlock can sign for this derived escrow PDA.
+    #[account(
+        signer,
+        address = ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer(
+            &escrow_auth.key(),
+            ACTION_ESCROW_INDEX,
+        )
+    )]
     pub escrow: UncheckedAccount<'info>,
 }
 
