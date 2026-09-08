@@ -278,56 +278,15 @@ pub mod contracts {
             receipt.status == ReceiptStatus::Pending,
             ErrorCode::InvalidSettlement
         );
-        let action_accounts = vec![
-            ShortAccountMeta {
-                pubkey: receipt.key(),
-                is_writable: true,
-            },
-            ShortAccountMeta {
-                pubkey: ctx.accounts.terminal.key(),
-                is_writable: true,
-            },
-            ShortAccountMeta {
-                pubkey: receipt.source_vault,
-                is_writable: true,
-            },
-            ShortAccountMeta {
-                pubkey: receipt.recipient_token,
-                is_writable: true,
-            },
-            ShortAccountMeta {
-                pubkey: receipt.mint,
-                is_writable: false,
-            },
-            ShortAccountMeta {
-                pubkey: token::ID,
-                is_writable: false,
-            },
-        ];
-        let action = ephemeral_rollups_sdk::ephem::CallHandler {
-            args: ActionArgs::new(anchor_lang::InstructionData::data(
-                &crate::instruction::SettleAction {},
-            )),
-            compute_units: 200_000,
-            escrow_authority: ctx.accounts.controller.to_account_info(),
-            destination_program: crate::ID,
-            accounts: action_accounts,
-        };
-        let builder = MagicIntentBundleBuilder::new(
+        let action = settlement_action(receipt, &ctx.accounts.terminal, &ctx.accounts.controller);
+        MagicIntentBundleBuilder::new(
             ctx.accounts.controller.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
             ctx.accounts.magic_program.to_account_info(),
-        );
-        if receipt.to_account_info().owner == &ephemeral_rollups_sdk::id() {
-            builder
-                .commit_and_undelegate(&[receipt.to_account_info()])
-                .add_post_undelegate_actions([action])
-                .build_and_invoke()?;
-        } else {
-            builder
-                .add_standalone_actions([action])
-                .build_and_invoke()?;
-        }
+        )
+        .commit_and_undelegate(&[receipt.to_account_info()])
+        .add_post_undelegate_actions([action])
+        .build_and_invoke()?;
         Ok(())
     }
 
@@ -405,21 +364,14 @@ pub mod contracts {
                 },
             ],
         };
-        let builder = MagicIntentBundleBuilder::new(
+        MagicIntentBundleBuilder::new(
             ctx.accounts.controller.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
             ctx.accounts.magic_program.to_account_info(),
-        );
-        if receipt.to_account_info().owner == &ephemeral_rollups_sdk::id() {
-            builder
-                .commit_and_undelegate(&[receipt.to_account_info()])
-                .add_post_undelegate_actions([action])
-                .build_and_invoke()?;
-        } else {
-            builder
-                .add_standalone_actions([action])
-                .build_and_invoke()?;
-        }
+        )
+        .commit_and_undelegate(&[receipt.to_account_info()])
+        .add_post_undelegate_actions([action])
+        .build_and_invoke()?;
         Ok(())
     }
 
@@ -634,6 +586,47 @@ fn fund<'info>(
     )
 }
 
+fn settlement_action<'info>(
+    receipt: &Account<'info, SettlementReceipt>,
+    terminal: &Account<'info, TerminalMarker>,
+    controller: &Signer<'info>,
+) -> ephemeral_rollups_sdk::ephem::CallHandler<'info> {
+    ephemeral_rollups_sdk::ephem::CallHandler {
+        args: ActionArgs::new(anchor_lang::InstructionData::data(
+            &crate::instruction::SettleAction {},
+        )),
+        compute_units: 200_000,
+        escrow_authority: controller.to_account_info(),
+        destination_program: crate::ID,
+        accounts: vec![
+            ShortAccountMeta {
+                pubkey: receipt.key(),
+                is_writable: true,
+            },
+            ShortAccountMeta {
+                pubkey: terminal.key(),
+                is_writable: true,
+            },
+            ShortAccountMeta {
+                pubkey: receipt.source_vault,
+                is_writable: true,
+            },
+            ShortAccountMeta {
+                pubkey: receipt.recipient_token,
+                is_writable: true,
+            },
+            ShortAccountMeta {
+                pubkey: receipt.mint,
+                is_writable: false,
+            },
+            ShortAccountMeta {
+                pubkey: token::ID,
+                is_writable: false,
+            },
+        ],
+    }
+}
+
 fn reserve(
     policy: &mut SecretPolicy,
     session: &mut SessionLedger,
@@ -820,7 +813,7 @@ pub struct CommitSettlement<'info> {
 pub struct CommitExpiry<'info> {
     #[account(mut, has_one = controller)]
     pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    #[account(seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
     /// CHECK: fixed MagicBlock context account.

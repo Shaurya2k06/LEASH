@@ -352,40 +352,61 @@ gate("LEASH Magic Action settlement gate", () => {
         .transaction()
     );
 
-    let failedWithoutConsuming = false;
+    let schedulerSignature: string | undefined;
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const marker = await program.account.terminalMarker.fetchNullable(
-        terminal
-      );
-      const balance = (
-        await getAccount(base.connection, recipientToken.address)
-      ).amount;
-      const receiptInfo = await base.connection.getAccountInfo(receipt);
-      if (
-        marker?.kind?.open !== undefined &&
-        balance === before &&
-        receiptInfo?.owner.equals(program.programId)
-      ) {
-        failedWithoutConsuming = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-    if (!failedWithoutConsuming) {
       const scheduled = await controllerEr.connection.getTransaction(
         failedSettleSignature,
         { maxSupportedTransactionVersion: 0 }
       );
-      throw new Error(
-        `failed Magic Action did not preserve the reservation; schedule=${failedSettleSignature}\n${
-          scheduled?.meta?.logMessages?.join("\n") || "no schedule logs"
-        }`
+      const line = scheduled?.meta?.logMessages?.find((entry) =>
+        entry.startsWith("ScheduledCommitSent signature: ")
       );
+      if (line) {
+        schedulerSignature = line.split(": ").pop();
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
+    if (!schedulerSignature)
+      throw new Error(
+        `Magic Action finalization was not scheduled; schedule=${failedSettleSignature}`
+      );
 
-    const reserved = await program.account.sessionLedger.fetch(
-      session,
-      "confirmed"
+    let actionFailed = false;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const finalized = await controllerEr.connection.getTransaction(
+        schedulerSignature,
+        { maxSupportedTransactionVersion: 0 }
+      );
+      const logs = finalized?.meta?.logMessages || [];
+      if (logs.some((entry) => entry.includes("patched error["))) {
+        actionFailed = true;
+        break;
+      }
+      if (logs.some((entry) => entry.includes("signature[0]:"))) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    if (!actionFailed)
+      throw new Error("underfunded Magic Action unexpectedly succeeded");
+
+    const markerAfterFailure = await program.account.terminalMarker.fetch(
+      terminal
+    );
+    const balanceAfterFailure = (
+      await getAccount(base.connection, recipientToken.address)
+    ).amount;
+    if (
+      markerAfterFailure.kind.open === undefined ||
+      balanceAfterFailure !== before
+    )
+      throw new Error("failed payment changed public settlement state");
+
+    const reservedInfo = await agentEr.connection.getAccountInfo(session);
+    if (!reservedInfo)
+      throw new Error("agent ledger disappeared after failure");
+    const reserved = program.coder.accounts.decode(
+      "sessionLedger",
+      reservedInfo.data
     );
     if (reserved.state.reserved === undefined)
       throw new Error("failed payment consumed the private reservation");
@@ -398,6 +419,16 @@ gate("LEASH Magic Action settlement gate", () => {
       controller,
       1_000_000
     );
+    await program.methods
+      .delegateReceipt(session)
+      .accountsPartial({
+        controller: controller.publicKey,
+        receipt,
+        validator: TEE_VALIDATOR,
+      })
+      .signers([controller])
+      .rpc();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
     await send(
       controllerEr,
       await program.methods
@@ -439,9 +470,11 @@ gate("LEASH Magic Action settlement gate", () => {
         .accountsPartial({ agent: agent.publicKey, session })
         .transaction()
     );
-    const spent = await program.account.sessionLedger.fetch(
-      session,
-      "confirmed"
+    const spentInfo = await agentEr.connection.getAccountInfo(session);
+    if (!spentInfo) throw new Error("agent ledger disappeared after success");
+    const spent = program.coder.accounts.decode(
+      "sessionLedger",
+      spentInfo.data
     );
     if (spent.state.spent === undefined)
       throw new Error("successful payment did not consume the reservation");
