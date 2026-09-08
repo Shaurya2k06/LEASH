@@ -18,8 +18,15 @@ claims a private game.
 - A public `TerminalMarker` is mutually exclusive: `spent` and `expired` use
   the same PDA and cannot both be created.
 - Payment is a Magic Action after a sanitized commit. The action authenticates
-  its escrow signer and creates the terminal marker, transfers SPL funds, and
-  marks the permit spent atomically.
+  its escrow signer, transfers SPL funds, creates the terminal marker, and
+  marks the receipt spent atomically.
+- A failed SPL action leaves the private reservation and pending receipt
+  intact. After the source vault is repaired, the receipt is re-delegated and
+  the same commit path can retry it; no budget is consumed until the action
+  succeeds.
+- Expiry refunds the private budget before an authenticated expiry action
+  publishes `TerminalKind::Expired`. The receipt state blocks settlement
+  before that action completes, so expiry cannot race a later payment.
 
 ## Account boundary
 
@@ -36,3 +43,18 @@ direct or batch TEE RPC, subscriptions, transaction messages, or requested
 simulation output. A successful member is intentionally allowed to read its
 own private ledger. The tested lifecycle scrubs, closes permissions, and
 undelegates before verifying that base RPC has no reservation bytes.
+
+## Current demonstrated slice
+
+From `contracts/` with a local wallet path:
+
+```sh
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:per
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:settlement
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:expiry
+```
+
+These live gates cover sibling-read denial, authenticated SPL payment,
+underfunded-action rollback and retry, replay rejection, and expiry/payment
+mutual exclusion. Twenty-agent contention, the operator client/crank, and
+latency evidence remain unfinished.

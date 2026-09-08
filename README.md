@@ -18,13 +18,24 @@ The existing client is a retired BLACKOUT preview and makes no LEASH claim. It w
 cd client && npm run lint && npm run build
 cd ../server && npm test
 cd ../contracts
-cargo check
+cargo test -p contracts
 yarn typecheck && yarn lint
 PATH="$HOME/.avm/bin:$PATH" yarn build
 yarn test:leash
+
+# Live devnet gates (replace the wallet path with your local wallet)
+ANCHOR_WALLET=/path/to/wallet.json \
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:per
+ANCHOR_WALLET=/path/to/wallet.json \
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:settlement
+ANCHOR_WALLET=/path/to/wallet.json \
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:expiry
 ```
 
-The contracts pin Rust 1.89.0 and Anchor 1.0.2. The LEASH devnet privacy gate has not yet been implemented; no privacy claim is made for this new kernel until it is tested against the TEE.
+The contracts pin Rust 1.89.0 and Anchor 1.0.2. The sibling-read privacy gate,
+authenticated SPL settlement gate, failed-payment retry, and expiry terminal
+gate pass against the deployed devnet TEE binary. The client is still the
+retired BLACKOUT preview and makes no LEASH product claim.
 
 Copy [`.env.example`](./.env.example) into a local ignored `.env` or export its values in your shell. Do not put wallet paths, keypairs, or TEE authorization tokens in git.
 
