@@ -18,6 +18,8 @@ const VAULT_ID = new web3.PublicKey(
 const TEE_VALIDATOR = new web3.PublicKey(
   process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
+const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
+const PAYLOAD_HASH = Array(32).fill(8);
 const gate = process.env.LEASH_PER_TEST === "1" ? describe : describe.skip;
 
 const withToken = (endpoint: string, token: string) =>
@@ -102,7 +104,7 @@ gate("LEASH TEE sibling-read gate", () => {
       [controller]
     );
     await program.methods
-      .createPolicy(policyId)
+      .createPolicy(policyId, TEE_VALIDATOR)
       .accountsPartial({
         controller: controller.publicKey,
         policy,
@@ -186,15 +188,34 @@ gate("LEASH TEE sibling-read gate", () => {
     const issueSignature = await send(
       controllerEr,
       await program.methods
-        .configurePolicy(Array(32).fill(7), amount, expiresAt)
+        .configurePolicy(
+          1,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          program.programId,
+          agent.publicKey,
+          controller.publicKey,
+          amount,
+          amount,
+          expiresAt
+        )
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
     await send(
-      controllerEr,
+      agentEr,
       await program.methods
-        .issuePermit(amount, expiresAt)
-        .accountsPartial({ controller: controller.publicKey, policy, session })
+        .issuePermit(
+          amount,
+          expiresAt,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
+          agent.publicKey,
+          program.programId,
+          controller.publicKey
+        )
+        .accountsPartial({ agent: agent.publicKey, policy, session })
         .transaction()
     );
 
@@ -227,8 +248,17 @@ gate("LEASH TEE sibling-read gate", () => {
     )
       throw new Error("sibling transaction RPC returned the reservation");
     const simulation = await program.methods
-      .consumePermit(new anchor.BN(1))
-      .accountsPartial({ agent: agent.publicKey, session })
+      .issuePermit(
+        amount,
+        expiresAt,
+        program.programId,
+        ACTION_DISCRIMINATOR,
+        PAYLOAD_HASH,
+        agent.publicKey,
+        program.programId,
+        controller.publicKey
+      )
+      .accountsPartial({ agent: agent.publicKey, policy, session })
       .transaction();
     simulation.feePayer = agent.publicKey;
     simulation.recentBlockhash = (
@@ -253,13 +283,6 @@ gate("LEASH TEE sibling-read gate", () => {
     )
       throw new Error("sibling simulation returned the reservation");
 
-    await send(
-      agentEr,
-      await program.methods
-        .consumePermit(new anchor.BN(1))
-        .accountsPartial({ agent: agent.publicKey, session })
-        .transaction()
-    );
     await send(
       controllerEr,
       await program.methods

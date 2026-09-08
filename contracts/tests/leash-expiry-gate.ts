@@ -24,6 +24,8 @@ const VAULT_ID = new web3.PublicKey(
 const TEE_VALIDATOR = new web3.PublicKey(
   process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
+const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
+const PAYLOAD_HASH = Array(32).fill(8);
 const gate = process.env.LEASH_EXPIRY_TEST === "1" ? describe : describe.skip;
 
 const withToken = (endpoint: string, token: string) =>
@@ -123,6 +125,7 @@ gate("LEASH expiry terminal gate", () => {
     );
     const policyPermission = permissionPdaFromAccount(policy);
     const sessionPermission = permissionPdaFromAccount(session);
+    const receiptPermission = permissionPdaFromAccount(receipt);
     const escrow = escrowPdaFromEscrowAuthority(
       controller.publicKey,
       ACTION_ESCROW_INDEX
@@ -154,7 +157,7 @@ gate("LEASH expiry terminal gate", () => {
     );
 
     await program.methods
-      .createPolicy(policyId)
+      .createPolicy(policyId, TEE_VALIDATOR)
       .accountsPartial({
         controller: controller.publicKey,
         policy,
@@ -248,6 +251,20 @@ gate("LEASH expiry terminal gate", () => {
         })
         .transaction()
     );
+    await send(
+      controllerEr,
+      await program.methods
+        .initReceiptPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          receipt,
+          permission: receiptPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
     const policyExpiry = new anchor.BN(
       (await controllerEr.connection.getSlot()) + 300
     );
@@ -257,15 +274,34 @@ gate("LEASH expiry terminal gate", () => {
     await send(
       controllerEr,
       await program.methods
-        .configurePolicy(Array(32).fill(5), amount, policyExpiry)
+        .configurePolicy(
+          1,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          controller.publicKey,
+          agent.publicKey,
+          controller.publicKey,
+          amount,
+          amount,
+          policyExpiry
+        )
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
     await send(
       controllerEr,
       await program.methods
-        .issuePermit(amount, permitExpiry)
-        .accountsPartial({ controller: controller.publicKey, policy, session })
+        .issuePermit(
+          amount,
+          permitExpiry,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
+          agent.publicKey,
+          controller.publicKey,
+          controller.publicKey
+        )
+        .accountsPartial({ agent: agent.publicKey, policy, session })
         .transaction()
     );
 
@@ -285,6 +321,7 @@ gate("LEASH expiry terminal gate", () => {
           policy,
           session,
           receipt,
+          terminal,
           controller: controller.publicKey,
         })
         .transaction()
@@ -296,7 +333,12 @@ gate("LEASH expiry terminal gate", () => {
         .accountsPartial({
           receipt,
           terminal,
+          policy,
+          session,
           controller: controller.publicKey,
+          permission: receiptPermission,
+          ephemeralVault: VAULT_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
           magicContext: MAGIC_CONTEXT_ID,
           magicProgram: MAGIC_PROGRAM_ID,
         })
@@ -326,6 +368,7 @@ gate("LEASH expiry terminal gate", () => {
             policy,
             session,
             receipt,
+            terminal,
             controller: controller.publicKey,
           })
           .transaction()
@@ -336,7 +379,11 @@ gate("LEASH expiry terminal gate", () => {
       send(
         base,
         await program.methods
-          .expireAction()
+          .expireAction(
+            new anchor.BN(1),
+            amount,
+            Array(32).fill(1)
+          )
           .accountsPartial({
             receipt,
             terminal,

@@ -31,6 +31,8 @@ const VAULT_ID = new web3.PublicKey(
 const TEE_VALIDATOR = new web3.PublicKey(
   process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
+const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
+const PAYLOAD_HASH = Array(32).fill(8);
 const gate =
   process.env.LEASH_SETTLEMENT_TEST === "1" ? describe : describe.skip;
 
@@ -131,6 +133,7 @@ gate("LEASH Magic Action settlement gate", () => {
     );
     const policyPermission = permissionPdaFromAccount(policy);
     const sessionPermission = permissionPdaFromAccount(session);
+    const receiptPermission = permissionPdaFromAccount(receipt);
     const escrow = escrowPdaFromEscrowAuthority(
       controller.publicKey,
       ACTION_ESCROW_INDEX
@@ -191,7 +194,7 @@ gate("LEASH Magic Action settlement gate", () => {
     );
 
     await program.methods
-      .createPolicy(policyId)
+      .createPolicy(policyId, TEE_VALIDATOR)
       .accountsPartial({
         controller: controller.publicKey,
         policy,
@@ -285,21 +288,54 @@ gate("LEASH Magic Action settlement gate", () => {
         })
         .transaction()
     );
+    await send(
+      controllerEr,
+      await program.methods
+        .initReceiptPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          receipt,
+          permission: receiptPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
     const expiresAt = new anchor.BN(
       (await controllerEr.connection.getSlot()) + 500
     );
     await send(
       controllerEr,
       await program.methods
-        .configurePolicy(Array(32).fill(9), amount, expiresAt)
+        .configurePolicy(
+          1,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          mint,
+          agent.publicKey,
+          sourceVault.address,
+          amount,
+          amount,
+          expiresAt
+        )
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
     await send(
       controllerEr,
       await program.methods
-        .issuePermit(amount, expiresAt)
-        .accountsPartial({ controller: controller.publicKey, policy, session })
+        .issuePermit(
+          amount,
+          expiresAt,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          PAYLOAD_HASH,
+          agent.publicKey,
+          mint,
+          sourceVault.address
+        )
+        .accountsPartial({ agent: agent.publicKey, policy, session })
         .transaction()
     );
 
@@ -307,7 +343,7 @@ gate("LEASH Magic Action settlement gate", () => {
       send(
         base,
         await program.methods
-          .settleAction()
+          .settleAction(new anchor.BN(1), amount, Array(32).fill(1))
           .accountsPartial({
             receipt,
             terminal,
@@ -334,6 +370,7 @@ gate("LEASH Magic Action settlement gate", () => {
           policy,
           session,
           receipt,
+          terminal,
           controller: controller.publicKey,
         })
         .transaction()
@@ -345,7 +382,12 @@ gate("LEASH Magic Action settlement gate", () => {
         .accountsPartial({
           receipt,
           terminal,
+          policy,
+          session,
           controller: controller.publicKey,
+          permission: receiptPermission,
+          ephemeralVault: VAULT_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
           magicContext: MAGIC_CONTEXT_ID,
           magicProgram: MAGIC_PROGRAM_ID,
         })
@@ -432,11 +474,30 @@ gate("LEASH Magic Action settlement gate", () => {
     await send(
       controllerEr,
       await program.methods
+        .initReceiptPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          receipt,
+          permission: receiptPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
+    await send(
+      controllerEr,
+      await program.methods
         .commitSettlement()
         .accountsPartial({
           receipt,
           terminal,
+          policy,
+          session,
           controller: controller.publicKey,
+          permission: receiptPermission,
+          ephemeralVault: VAULT_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
           magicContext: MAGIC_CONTEXT_ID,
           magicProgram: MAGIC_PROGRAM_ID,
         })
@@ -464,10 +525,16 @@ gate("LEASH Magic Action settlement gate", () => {
       throw new Error("Magic Action retry did not settle the receipt");
 
     await send(
-      agentEr,
+      controllerEr,
       await program.methods
-        .consumePermit(new anchor.BN(1))
-        .accountsPartial({ agent: agent.publicKey, session })
+        .finalizePermit(new anchor.BN(1))
+        .accountsPartial({
+          policy,
+          session,
+          receipt,
+          terminal,
+          controller: controller.publicKey,
+        })
         .transaction()
     );
     const spentInfo = await agentEr.connection.getAccountInfo(session);
@@ -483,7 +550,7 @@ gate("LEASH Magic Action settlement gate", () => {
       send(
         base,
         await program.methods
-          .settleAction()
+          .settleAction(new anchor.BN(1), amount, Array(32).fill(1))
           .accountsPartial({
             receipt,
             terminal,

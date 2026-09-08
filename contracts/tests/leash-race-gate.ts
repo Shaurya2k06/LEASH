@@ -18,6 +18,8 @@ const PERMISSION_VAULT = new web3.PublicKey(
 const TEE_VALIDATOR = new web3.PublicKey(
   process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
+const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
+const PAYLOAD_HASH = Array(32).fill(8);
 const AGENT_COUNT = 20;
 const gate = process.env.LEASH_RACE_TEST === "1" ? describe : describe.skip;
 
@@ -119,7 +121,7 @@ gate("LEASH twenty-agent budget race gate", () => {
       [controller]
     );
     await program.methods
-      .createPolicy(policyId)
+      .createPolicy(policyId, TEE_VALIDATOR)
       .accountsPartial({
         controller: controller.publicKey,
         policy,
@@ -214,19 +216,38 @@ gate("LEASH twenty-agent budget race gate", () => {
     await send(
       controllerEr,
       await program.methods
-        .configurePolicy(Array(32).fill(3), amount, expiresAt)
+        .configurePolicy(
+          1,
+          program.programId,
+          ACTION_DISCRIMINATOR,
+          program.programId,
+          controller.publicKey,
+          controller.publicKey,
+          amount,
+          amount,
+          expiresAt
+        )
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
     const attempts = await Promise.all(
-      sessions.map(async (session) => {
+      sessions.map(async (session, index) => {
         try {
           await send(
-            controllerEr,
+            agentErs[index],
             await program.methods
-              .issuePermit(amount, expiresAt)
+              .issuePermit(
+                amount,
+                expiresAt,
+                program.programId,
+                ACTION_DISCRIMINATOR,
+                PAYLOAD_HASH,
+                controller.publicKey,
+                program.programId,
+                controller.publicKey
+              )
               .accountsPartial({
-                controller: controller.publicKey,
+                agent: agents[index].agent.publicKey,
                 policy,
                 session,
               })
