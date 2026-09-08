@@ -1,6 +1,8 @@
-# BLACKOUT
+# LEASH (formerly BLACKOUT)
 
-BLACKOUT is a four-player stealth arena designed for authoritative execution inside a MagicBlock Private Ephemeral Rollup. The client is still a local preview; the contracts include the Phase 1 private-state probe, opt-in no-reader gate, and the bounded Phase 2 account model.
+BLACKOUT's devnet no-reader crank gate failed: a writer excluded from the private permission could update a probe that then appeared on base RPC. The evidence is recorded in [`docs/evidence.md`](./docs/evidence.md); this repository has pivoted to LEASH, a confidential capability and budget kernel for hostile agent swarms.
+
+LEASH keeps private policy and agent-session state in one PER, uses single-use permits, and will settle through an authenticated Magic Action SPL payment with mutually exclusive spent/expired markers. Its concrete invariants are in [`docs/leash.md`](./docs/leash.md).
 
 ## Run the preview
 
@@ -8,7 +10,7 @@ BLACKOUT is a four-player stealth arena designed for authoritative execution ins
 cd client && npm run dev
 ```
 
-The preview contains the arena shell, roster/visibility states, tick control, and simulated attack-console interactions. It does not claim a live PER connection.
+The existing client is a retired BLACKOUT preview and makes no LEASH claim. It will be replaced with the LEASH operator view.
 
 ## Validate the current slice
 
@@ -19,13 +21,11 @@ cd ../contracts
 cargo check
 yarn typecheck && yarn lint
 PATH="$HOME/.avm/bin:$PATH" yarn build
-yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/per-gate.ts
+yarn test:leash
 ```
 
-The contracts pin Rust 1.89.0 and Anchor 1.0.2. The dry gate is skipped by default. After configuring a funded wallet and the required TEE endpoint, run `PATH="$HOME/.avm/bin:$PATH" yarn test:per` to execute the real devnet gate. It checks authorized TEE reads, base-layer raw reads, unauthenticated TEE reads, and wrong-wallet TEE reads, then scrubs and undelegates the probe.
+The contracts pin Rust 1.89.0 and Anchor 1.0.2. The LEASH devnet privacy gate has not yet been implemented; no privacy claim is made for this new kernel until it is tested against the TEE.
 
 Copy [`.env.example`](./.env.example) into a local ignored `.env` or export its values in your shell. Do not put wallet paths, keypairs, or TEE authorization tokens in git.
 
-Gameplay advancement intentionally returns `PrivateStateNotReady` until this gate passes; a public `World` account would invalidate the product’s privacy claim.
-
-Phase 2 has canonical PDA seeds and fixed-size layouts for the lobby, match, sponsor, world, inboxes, player views, result, ratings, and settlement marker. A full roster no longer enters `Ready` until the private lifecycle is wired.
+The prior BLACKOUT program stays deployed only as a restored probe artifact. Do not use it for gameplay or submission.

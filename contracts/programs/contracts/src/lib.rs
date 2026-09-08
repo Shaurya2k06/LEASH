@@ -2,662 +2,295 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 use ephemeral_rollups_sdk::{
     access_control::{
-        instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
-        structs::{
-            EphemeralMembersArgs, EphemeralPermission, Member, PERMISSION_SEED, TX_BALANCES_FLAG,
-            TX_LOGS_FLAG, TX_MESSAGE_FLAG,
-        },
+        instructions::CreateEphemeralPermissionCpi,
+        structs::{EphemeralMembersArgs, EphemeralPermission, Member, PERMISSION_SEED, TX_BALANCES_FLAG, TX_LOGS_FLAG, TX_MESSAGE_FLAG},
     },
-    anchor::{commit, delegate, ephemeral},
+    anchor::{delegate, ephemeral},
     consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID},
     cpi::DelegateConfig,
-    ephem::MagicIntentBundleBuilder,
 };
 
 declare_id!("3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe");
 
-const MAX_PLAYERS: usize = 4;
-const MAX_LOBBY_PLAYERS: usize = 16;
-const MAX_PROJECTILES: usize = 32;
-const MAX_TICK: u32 = 72_000;
-const MAX_FUTURE_TICKS: u32 = 2;
-const MAX_AXIS: i16 = 100;
-const AIM_DIRECTIONS: u8 = 8;
-pub const LOBBY_SEED: &[u8] = b"lobby";
-pub const MATCH_SEED: &[u8] = b"match";
-pub const SPONSOR_SEED: &[u8] = b"sponsor";
-pub const WORLD_SEED: &[u8] = b"world";
-pub const INPUT_SEED: &[u8] = b"input";
-pub const VIEW_SEED: &[u8] = b"view";
-pub const RESULT_SEED: &[u8] = b"result";
-pub const RATING_SEED: &[u8] = b"rating";
-pub const SETTLEMENT_SEED: &[u8] = b"settlement";
-pub const PROBE_SEED: &[u8] = b"probe";
+pub const POLICY_SEED: &[u8] = b"policy";
+pub const SESSION_SEED: &[u8] = b"session";
 
 #[ephemeral]
 #[program]
 pub mod contracts {
     use super::*;
 
-    pub fn create_match(
-        ctx: Context<CreateMatch>,
-        match_id: u64,
-        max_tick: u32,
-        rules_hash: [u8; 32],
-        prize_mint: Pubkey,
-        prize_amount: u64,
-    ) -> Result<()> {
-        require!(
-            max_tick > 0
-                && max_tick <= MAX_TICK
-                && prize_mint != Pubkey::default()
-                && prize_amount > 0,
-            ErrorCode::InvalidMatchConfig
-        );
-
-        let match_config = &mut ctx.accounts.match_config;
-        match_config.authority = ctx.accounts.authority.key();
-        match_config.match_id = match_id;
-        match_config.players = [Pubkey::default(); MAX_PLAYERS];
-        match_config.player_count = 0;
-        match_config.phase = MatchPhase::Created;
-        match_config.tick = 0;
-        match_config.max_tick = max_tick;
-        match_config.rules_hash = rules_hash;
-        match_config.prize_mint = prize_mint;
-        match_config.prize_amount = prize_amount;
-        match_config.bump = ctx.bumps.match_config;
-        Ok(())
+    pub fn create_policy(ctx: Context<CreatePolicy>, policy_id: u64) -> Result<()> {
+        let policy = &mut ctx.accounts.policy;
+        policy.controller = ctx.accounts.controller.key();
+        policy.policy_id = policy_id;
+        policy.policy_hash = [0; 32];
+        policy.remaining_budget = 0;
+        policy.expires_at_slot = 0;
+        policy.next_permit = 0;
+        policy.scrubbed = true;
+        policy.bump = ctx.bumps.policy;
+        fund(&ctx.accounts.system_program, &ctx.accounts.controller, &policy.to_account_info(), 1)
     }
 
-    pub fn join_match(ctx: Context<JoinMatch>) -> Result<()> {
-        let match_config = &mut ctx.accounts.match_config;
-        require!(
-            match_config.phase == MatchPhase::Created,
-            ErrorCode::WrongPhase
-        );
-        require!(
-            match_config.player_count < MAX_PLAYERS as u8,
-            ErrorCode::MatchFull
-        );
-
-        let player = ctx.accounts.player.key();
-        require!(
-            !match_config.players[..match_config.player_count as usize].contains(&player),
-            ErrorCode::DuplicatePlayer
-        );
-
-        let slot = match_config.player_count as usize;
-        match_config.players[slot] = player;
-        match_config.player_count += 1;
-
-        let input = &mut ctx.accounts.input;
-        input.match_config = match_config.key();
-        input.player = player;
-        input.last_sequence = 0;
-        input.pending = false;
-        input.target_tick = 0;
-        input.move_x = 0;
-        input.move_y = 0;
-        input.aim = 0;
-        input.fire = false;
-        input.bump = ctx.bumps.input;
-        Ok(())
+    pub fn create_session(ctx: Context<CreateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        session.policy = ctx.accounts.policy.key();
+        session.controller = ctx.accounts.policy.controller;
+        session.agent = ctx.accounts.agent.key();
+        session.permit_nonce = 0;
+        session.reserved_amount = 0;
+        session.permit_expires_at_slot = 0;
+        session.spent_amount = 0;
+        session.state = PermitState::Idle;
+        session.scrubbed = true;
+        session.bump = ctx.bumps.session;
+        fund(&ctx.accounts.system_program, &ctx.accounts.agent, &session.to_account_info(), 2)
     }
 
-    pub fn start_match(ctx: Context<StartMatch>) -> Result<()> {
-        let match_config = &mut ctx.accounts.match_config;
-        require!(
-            match_config.phase == MatchPhase::Ready,
-            ErrorCode::WrongPhase
-        );
-        match_config.phase = MatchPhase::Running;
-        Ok(())
-    }
-
-    pub fn submit_input(
-        ctx: Context<SubmitInput>,
-        sequence: u64,
-        target_tick: u32,
-        move_x: i16,
-        move_y: i16,
-        aim: u8,
-        fire: bool,
-    ) -> Result<()> {
-        let match_config = &ctx.accounts.match_config;
-        require!(
-            match_config.phase == MatchPhase::Running,
-            ErrorCode::WrongPhase
-        );
-        require!(
-            sequence > 0 && sequence > ctx.accounts.input.last_sequence,
-            ErrorCode::Replay
-        );
-        require!(
-            target_tick > match_config.tick
-                && target_tick <= match_config.tick.saturating_add(MAX_FUTURE_TICKS),
-            ErrorCode::TickOutOfRange
-        );
-        require!(
-            (-MAX_AXIS..=MAX_AXIS).contains(&move_x) && (-MAX_AXIS..=MAX_AXIS).contains(&move_y),
-            ErrorCode::InvalidInput
-        );
-        require!(aim < AIM_DIRECTIONS, ErrorCode::InvalidInput);
-        require!(!ctx.accounts.input.pending, ErrorCode::InputPending);
-
-        let input = &mut ctx.accounts.input;
-        input.last_sequence = sequence;
-        input.pending = true;
-        input.target_tick = target_tick;
-        input.move_x = move_x;
-        input.move_y = move_y;
-        input.aim = aim;
-        input.fire = fire;
-        Ok(())
-    }
-
-    // Phase 1 gate: gameplay cannot advance until a private World can be updated
-    // without granting the crank or another player raw-world read access.
-    pub fn advance_tick(_ctx: Context<AdvanceTick>) -> Result<()> {
-        err!(ErrorCode::PrivateStateNotReady)
-    }
-
-    pub fn initialize_probe(ctx: Context<InitializeProbe>, secret: u64) -> Result<()> {
-        transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.key(),
-                Transfer {
-                    from: ctx.accounts.authority.to_account_info(),
-                    to: ctx.accounts.probe.to_account_info(),
-                },
-            ),
-            ephemeral_rollups_sdk::ephemeral_accounts::rent(EphemeralPermission::size_of(1) as u32),
-        )?;
-
-        let probe = &mut ctx.accounts.probe;
-        probe.authority = ctx.accounts.authority.key();
-        probe.secret = secret;
-        probe.bump = ctx.bumps.probe;
-        Ok(())
-    }
-
-    pub fn delegate_probe(ctx: Context<DelegateProbe>) -> Result<()> {
-        if ctx.accounts.probe.owner != &ephemeral_rollups_sdk::id() {
-            let validator = ctx.accounts.validator.as_ref();
-            ctx.accounts.delegate_probe(
-                &ctx.accounts.authority,
-                &[PROBE_SEED, ctx.accounts.authority.key().as_ref()],
-                DelegateConfig {
-                    validator: validator.map(|account| account.key()),
-                    ..Default::default()
-                },
+    pub fn delegate_policy(ctx: Context<DelegatePolicy>, policy_id: u64) -> Result<()> {
+        if ctx.accounts.policy.owner != &ephemeral_rollups_sdk::id() {
+            ctx.accounts.delegate_policy(
+                &ctx.accounts.controller,
+                &[POLICY_SEED, ctx.accounts.controller.key().as_ref(), &policy_id.to_le_bytes()],
+                DelegateConfig { validator: ctx.accounts.validator.as_ref().map(|v| v.key()), ..Default::default() },
             )?;
         }
         Ok(())
     }
 
-    pub fn init_probe_permission(ctx: Context<ProbePermissionContext>) -> Result<()> {
-        if ctx.accounts.permission.lamports() > 0 {
-            return Ok(());
+    pub fn delegate_session(ctx: Context<DelegateSession>) -> Result<()> {
+        if ctx.accounts.session.owner != &ephemeral_rollups_sdk::id() {
+            ctx.accounts.delegate_session(
+                &ctx.accounts.agent,
+                &[SESSION_SEED, ctx.accounts.policy.key().as_ref(), ctx.accounts.agent.key().as_ref()],
+                DelegateConfig { validator: ctx.accounts.validator.as_ref().map(|v| v.key()), ..Default::default() },
+            )?;
         }
+        Ok(())
+    }
 
-        let signers = [
-            PROBE_SEED,
-            ctx.accounts.probe.authority.as_ref(),
-            &[ctx.accounts.probe.bump],
-        ];
+    pub fn init_policy_permission(ctx: Context<PolicyPermission>) -> Result<()> {
+        if ctx.accounts.permission.lamports() > 0 { return Ok(()); }
+        let policy = &ctx.accounts.policy;
+        let id = policy.policy_id.to_le_bytes();
+        let bump = [policy.bump];
         CreateEphemeralPermissionCpi {
-            payer: ctx.accounts.probe.to_account_info(),
-            permissioned_account: ctx.accounts.probe.to_account_info(),
-            permission: ctx.accounts.permission.to_account_info(),
-            vault: ctx.accounts.ephemeral_vault.to_account_info(),
-            magic_program: ctx.accounts.magic_program.to_account_info(),
-            permission_program: ctx.accounts.permission_program.to_account_info(),
-            args: EphemeralMembersArgs {
-                is_private: true,
-                members: vec![Member {
-                    flags: TX_LOGS_FLAG | TX_MESSAGE_FLAG | TX_BALANCES_FLAG,
-                    pubkey: ctx.accounts.probe.authority,
-                }],
-            },
-        }
-        .invoke_signed(&[&signers])?;
+            payer: policy.to_account_info(), permissioned_account: policy.to_account_info(),
+            permission: ctx.accounts.permission.to_account_info(), vault: ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: ctx.accounts.magic_program.to_account_info(), permission_program: ctx.accounts.permission_program.to_account_info(),
+            args: members(vec![policy.controller]),
+        }.invoke_signed(&[&[POLICY_SEED, policy.controller.as_ref(), &id, &bump]])?;
         Ok(())
     }
 
-    pub fn write_probe(ctx: Context<ProbeAuthority>, secret: u64) -> Result<()> {
-        ctx.accounts.probe.secret = secret;
+    pub fn init_session_permission(ctx: Context<SessionPermission>) -> Result<()> {
+        if ctx.accounts.permission.lamports() > 0 { return Ok(()); }
+        let session = &ctx.accounts.session;
+        let bump = [session.bump];
+        CreateEphemeralPermissionCpi {
+            payer: session.to_account_info(), permissioned_account: session.to_account_info(),
+            permission: ctx.accounts.permission.to_account_info(), vault: ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: ctx.accounts.magic_program.to_account_info(), permission_program: ctx.accounts.permission_program.to_account_info(),
+            args: members(vec![session.controller, session.agent]),
+        }.invoke_signed(&[&[SESSION_SEED, session.policy.as_ref(), session.agent.as_ref(), &bump]])?;
         Ok(())
     }
 
-    pub fn scrub_probe(ctx: Context<ProbeAuthority>) -> Result<()> {
-        ctx.accounts.probe.secret = 0;
+    pub fn configure_policy(ctx: Context<PolicyController>, hash: [u8; 32], budget: u64, expires_at_slot: u64) -> Result<()> {
+        require!(hash != [0; 32] && budget > 0, ErrorCode::InvalidPolicy);
+        require!(expires_at_slot > Clock::get()?.slot, ErrorCode::Expired);
+        let policy = &mut ctx.accounts.policy;
+        require!(policy.scrubbed, ErrorCode::AlreadyConfigured);
+        policy.policy_hash = hash;
+        policy.remaining_budget = budget;
+        policy.expires_at_slot = expires_at_slot;
+        policy.next_permit = 0;
+        policy.scrubbed = false;
         Ok(())
     }
 
-    pub fn close_probe_permission(ctx: Context<ProbePermissionContext>) -> Result<()> {
-        let signers = [
-            PROBE_SEED,
-            ctx.accounts.probe.authority.as_ref(),
-            &[ctx.accounts.probe.bump],
-        ];
-        CloseEphemeralPermissionCpi {
-            payer: ctx.accounts.probe.to_account_info(),
-            permissioned_account: ctx.accounts.probe.to_account_info(),
-            permission: ctx.accounts.permission.to_account_info(),
-            vault: ctx.accounts.ephemeral_vault.to_account_info(),
-            magic_program: ctx.accounts.magic_program.to_account_info(),
-            permission_program: ctx.accounts.permission_program.to_account_info(),
-            authority: ctx.accounts.probe.to_account_info(),
-            authority_is_signer: false,
-        }
-        .invoke_signed(&[&signers])?;
+    pub fn issue_permit(ctx: Context<SessionController>, amount: u64, expires_at_slot: u64) -> Result<()> {
+        reserve(&mut ctx.accounts.policy, &mut ctx.accounts.session, amount, expires_at_slot, Clock::get()?.slot)
+    }
+
+    pub fn consume_permit(ctx: Context<SessionAgent>, nonce: u64) -> Result<()> {
+        consume(&mut ctx.accounts.session, nonce, Clock::get()?.slot)
+    }
+
+    pub fn expire_permit(ctx: Context<SessionController>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        require!(session.state == PermitState::Reserved, ErrorCode::NoReservation);
+        require!(Clock::get()?.slot > session.permit_expires_at_slot, ErrorCode::NotExpired);
+        ctx.accounts.policy.remaining_budget = ctx.accounts.policy.remaining_budget.checked_add(session.reserved_amount).ok_or(ErrorCode::ArithmeticOverflow)?;
+        session.reserved_amount = 0;
+        session.state = PermitState::Expired;
         Ok(())
     }
 
-    pub fn undelegate_probe(ctx: Context<UndelegateProbe>) -> Result<()> {
-        require!(ctx.accounts.probe.secret == 0, ErrorCode::ProbeNotScrubbed);
-        MagicIntentBundleBuilder::new(
-            ctx.accounts.payer.to_account_info(),
-            ctx.accounts.magic_context.to_account_info(),
-            ctx.accounts.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[ctx.accounts.probe.to_account_info()])
-        .build_and_invoke()?;
+    pub fn scrub_policy(ctx: Context<PolicyController>) -> Result<()> {
+        let policy = &mut ctx.accounts.policy;
+        policy.policy_hash = [0; 32]; policy.remaining_budget = 0; policy.expires_at_slot = 0; policy.next_permit = 0; policy.scrubbed = true;
         Ok(())
     }
 }
 
+fn members(keys: Vec<Pubkey>) -> EphemeralMembersArgs {
+    EphemeralMembersArgs { is_private: true, members: keys.into_iter().map(|pubkey| Member { pubkey, flags: TX_LOGS_FLAG | TX_MESSAGE_FLAG | TX_BALANCES_FLAG }).collect() }
+}
+
+fn fund<'info>(system_program: &Program<'info, System>, payer: &Signer<'info>, recipient: &AccountInfo<'info>, members: usize) -> Result<()> {
+    transfer(CpiContext::new(system_program.key(), Transfer { from: payer.to_account_info(), to: recipient.clone() }), ephemeral_rollups_sdk::ephemeral_accounts::rent(EphemeralPermission::size_of(members) as u32))
+}
+
+fn reserve(policy: &mut SecretPolicy, session: &mut SessionLedger, amount: u64, expires_at_slot: u64, now: u64) -> Result<()> {
+    require!(!policy.scrubbed, ErrorCode::NotConfigured);
+    require!(session.state != PermitState::Reserved, ErrorCode::ReservationExists);
+    require!(amount > 0 && expires_at_slot > now && expires_at_slot <= policy.expires_at_slot, ErrorCode::InvalidPermit);
+    policy.remaining_budget = policy.remaining_budget.checked_sub(amount).ok_or(ErrorCode::BudgetExceeded)?;
+    policy.next_permit = policy.next_permit.checked_add(1).ok_or(ErrorCode::ArithmeticOverflow)?;
+    session.permit_nonce = policy.next_permit;
+    session.reserved_amount = amount;
+    session.permit_expires_at_slot = expires_at_slot;
+    session.state = PermitState::Reserved;
+    session.scrubbed = false;
+    Ok(())
+}
+
+fn consume(session: &mut SessionLedger, nonce: u64, now: u64) -> Result<()> {
+    require!(session.state == PermitState::Reserved, ErrorCode::NoReservation);
+    require!(session.permit_nonce == nonce, ErrorCode::Replay);
+    require!(now <= session.permit_expires_at_slot, ErrorCode::Expired);
+    session.spent_amount = session.spent_amount.checked_add(session.reserved_amount).ok_or(ErrorCode::ArithmeticOverflow)?;
+    session.reserved_amount = 0;
+    session.state = PermitState::Spent;
+    Ok(())
+}
+
 #[derive(Accounts)]
-#[instruction(match_id: u64)]
-pub struct CreateMatch<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    #[account(
-        init,
-        payer = authority,
-        space = MatchConfig::SPACE,
-        seeds = [MATCH_SEED, &match_id.to_le_bytes()],
-        bump
-    )]
-    pub match_config: Account<'info, MatchConfig>,
+#[instruction(policy_id: u64)]
+pub struct CreatePolicy<'info> {
+    #[account(mut)] pub controller: Signer<'info>,
+    #[account(init, payer = controller, space = 8 + SecretPolicy::SPACE, seeds = [POLICY_SEED, controller.key().as_ref(), &policy_id.to_le_bytes()], bump)] pub policy: Account<'info, SecretPolicy>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct JoinMatch<'info> {
-    #[account(mut)]
-    pub player: Signer<'info>,
-    #[account(mut)]
-    pub match_config: Account<'info, MatchConfig>,
-    #[account(
-        init,
-        payer = player,
-        space = InputInbox::SPACE,
-        seeds = [INPUT_SEED, match_config.key().as_ref(), player.key().as_ref()],
-        bump
-    )]
-    pub input: Account<'info, InputInbox>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct StartMatch<'info> {
-    pub authority: Signer<'info>,
-    #[account(mut, has_one = authority)]
-    pub match_config: Account<'info, MatchConfig>,
-}
-
-#[derive(Accounts)]
-pub struct SubmitInput<'info> {
-    pub player: Signer<'info>,
-    pub match_config: Account<'info, MatchConfig>,
-    #[account(
-        mut,
-        seeds = [INPUT_SEED, match_config.key().as_ref(), player.key().as_ref()],
-        bump = input.bump,
-        has_one = match_config,
-        has_one = player
-    )]
-    pub input: Account<'info, InputInbox>,
-}
-
-#[derive(Accounts)]
-pub struct AdvanceTick<'info> {
-    pub submitter: Signer<'info>,
-    pub match_config: Account<'info, MatchConfig>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeProbe<'info> {
-    #[account(
-        init_if_needed,
-        payer = authority,
-        space = 8 + PrivateProbe::SPACE,
-        seeds = [PROBE_SEED, authority.key().as_ref()],
-        bump
-    )]
-    pub probe: Account<'info, PrivateProbe>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
+pub struct CreateSession<'info> {
+    #[account(mut)] pub agent: Signer<'info>,
+    pub policy: Account<'info, SecretPolicy>,
+    #[account(init, payer = agent, space = 8 + SessionLedger::SPACE, seeds = [SESSION_SEED, policy.key().as_ref(), agent.key().as_ref()], bump)] pub session: Account<'info, SessionLedger>,
     pub system_program: Program<'info, System>,
 }
 
 #[delegate]
 #[derive(Accounts)]
-pub struct DelegateProbe<'info> {
-    pub authority: Signer<'info>,
-    /// CHECK: The probe PDA is checked by the delegation program.
-    #[account(mut, del, seeds = [PROBE_SEED, authority.key().as_ref()], bump)]
-    pub probe: UncheckedAccount<'info>,
-    /// CHECK: Checked by the delegation program.
+#[instruction(policy_id: u64)]
+pub struct DelegatePolicy<'info> {
+    pub controller: Signer<'info>,
+    /// CHECK: checked by the delegation program and canonical PDA seeds.
+    #[account(mut, del, seeds = [POLICY_SEED, controller.key().as_ref(), &policy_id.to_le_bytes()], bump)] pub policy: UncheckedAccount<'info>,
+    /// CHECK: checked by the delegation program.
+    pub validator: Option<UncheckedAccount<'info>>,
+}
+
+#[delegate]
+#[derive(Accounts)]
+pub struct DelegateSession<'info> {
+    pub agent: Signer<'info>,
+    pub policy: Account<'info, SecretPolicy>,
+    /// CHECK: checked by the delegation program and canonical PDA seeds.
+    #[account(mut, del, seeds = [SESSION_SEED, policy.key().as_ref(), agent.key().as_ref()], bump)] pub session: UncheckedAccount<'info>,
+    /// CHECK: checked by the delegation program.
     pub validator: Option<UncheckedAccount<'info>>,
 }
 
 #[derive(Accounts)]
-pub struct ProbeAuthority<'info> {
-    #[account(mut, seeds = [PROBE_SEED, probe.authority.as_ref()], has_one = authority, bump = probe.bump)]
-    pub probe: Account<'info, PrivateProbe>,
-    pub authority: Signer<'info>,
+pub struct PolicyController<'info> {
+    #[account(mut, has_one = controller)] pub policy: Account<'info, SecretPolicy>,
+    pub controller: Signer<'info>,
 }
 
 #[derive(Accounts)]
-pub struct ProbePermissionContext<'info> {
-    pub authority: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [PROBE_SEED, probe.authority.as_ref()],
-        has_one = authority,
-        bump = probe.bump
-    )]
-    pub probe: Account<'info, PrivateProbe>,
-    /// CHECK: Verified by the permission program using the canonical PDA.
-    #[account(
-        mut,
-        seeds = [PERMISSION_SEED, probe.key().as_ref()],
-        bump,
-        seeds::program = PERMISSION_PROGRAM_ID
-    )]
-    pub permission: UncheckedAccount<'info>,
-    /// CHECK: Permission program address is fixed by the SDK.
-    #[account(address = PERMISSION_PROGRAM_ID)]
-    pub permission_program: UncheckedAccount<'info>,
-    /// CHECK: Ephemeral vault address is fixed by the SDK.
-    #[account(mut, address = EPHEMERAL_VAULT_ID)]
-    pub ephemeral_vault: UncheckedAccount<'info>,
-    /// CHECK: Magic program address is fixed by the SDK.
-    #[account(address = MAGIC_PROGRAM_ID)]
-    pub magic_program: UncheckedAccount<'info>,
+pub struct SessionController<'info> {
+    #[account(mut, has_one = controller)] pub policy: Account<'info, SecretPolicy>,
+    #[account(mut, has_one = policy, has_one = controller)] pub session: Account<'info, SessionLedger>,
+    pub controller: Signer<'info>,
 }
 
-#[commit]
 #[derive(Accounts)]
-pub struct UndelegateProbe<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(mut, seeds = [PROBE_SEED, probe.authority.as_ref()], bump = probe.bump)]
-    pub probe: Account<'info, PrivateProbe>,
+pub struct SessionAgent<'info> {
+    #[account(mut, has_one = agent)] pub session: Account<'info, SessionLedger>,
+    pub agent: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct PolicyPermission<'info> {
+    pub controller: Signer<'info>,
+    #[account(mut, has_one = controller)] pub policy: Account<'info, SecretPolicy>,
+    /// CHECK: canonical permission PDA.
+    #[account(mut, seeds = [PERMISSION_SEED, policy.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)] pub permission: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK program.
+    #[account(address = PERMISSION_PROGRAM_ID)] pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK vault.
+    #[account(mut, address = EPHEMERAL_VAULT_ID)] pub ephemeral_vault: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK program.
+    #[account(address = MAGIC_PROGRAM_ID)] pub magic_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SessionPermission<'info> {
+    pub agent: Signer<'info>,
+    #[account(mut, has_one = agent)] pub session: Account<'info, SessionLedger>,
+    /// CHECK: canonical permission PDA.
+    #[account(mut, seeds = [PERMISSION_SEED, session.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)] pub permission: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK program.
+    #[account(address = PERMISSION_PROGRAM_ID)] pub permission_program: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK vault.
+    #[account(mut, address = EPHEMERAL_VAULT_ID)] pub ephemeral_vault: UncheckedAccount<'info>,
+    /// CHECK: fixed SDK program.
+    #[account(address = MAGIC_PROGRAM_ID)] pub magic_program: UncheckedAccount<'info>,
 }
 
 #[account]
-pub struct MatchConfig {
-    pub authority: Pubkey,
-    pub match_id: u64,
-    pub players: [Pubkey; MAX_PLAYERS],
-    pub player_count: u8,
-    pub phase: MatchPhase,
-    pub tick: u32,
-    pub max_tick: u32,
-    pub rules_hash: [u8; 32],
-    pub prize_mint: Pubkey,
-    pub prize_amount: u64,
-    pub bump: u8,
-}
-
-impl MatchConfig {
-    pub const SPACE: usize = 8 + 32 + 8 + (32 * MAX_PLAYERS) + 1 + 1 + 4 + 4 + 32 + 32 + 8 + 1;
-}
+pub struct SecretPolicy { pub controller: Pubkey, pub policy_id: u64, pub policy_hash: [u8; 32], pub remaining_budget: u64, pub expires_at_slot: u64, pub next_permit: u64, pub scrubbed: bool, pub bump: u8 }
+impl SecretPolicy { pub const SPACE: usize = 32 + 8 + 32 + 8 + 8 + 8 + 1 + 1; }
 
 #[account]
-pub struct LobbyQueue {
-    pub players: [Pubkey; MAX_LOBBY_PLAYERS],
-    pub player_count: u8,
-    pub bump: u8,
-}
-
-impl LobbyQueue {
-    pub const SPACE: usize = 8 + (32 * MAX_LOBBY_PLAYERS) + 1 + 1;
-}
-
-#[account]
-pub struct MatchSponsor {
-    pub match_config: Pubkey,
-    pub authority: Pubkey,
-    pub bump: u8,
-}
-
-impl MatchSponsor {
-    pub const SPACE: usize = 8 + 32 + 32 + 1;
-}
-
-#[account]
-pub struct InputInbox {
-    pub match_config: Pubkey,
-    pub player: Pubkey,
-    pub last_sequence: u64,
-    pub pending: bool,
-    pub target_tick: u32,
-    pub move_x: i16,
-    pub move_y: i16,
-    pub aim: u8,
-    pub fire: bool,
-    pub bump: u8,
-}
-
-impl InputInbox {
-    pub const SPACE: usize = 8 + 32 + 32 + 8 + 1 + 4 + 2 + 2 + 1 + 1 + 1;
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
-pub struct PlayerState {
-    pub x: i32,
-    pub y: i32,
-    pub velocity_x: i16,
-    pub velocity_y: i16,
-    pub health: u16,
-    pub cooldown_ticks: u16,
-    pub aim: u8,
-    pub alive: bool,
-}
-
-impl PlayerState {
-    pub const SPACE: usize = 4 + 4 + 2 + 2 + 2 + 2 + 1 + 1;
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
-pub struct ProjectileState {
-    pub active: bool,
-    pub owner_index: u8,
-    pub x: i32,
-    pub y: i32,
-    pub velocity_x: i16,
-    pub velocity_y: i16,
-    pub damage: u16,
-    pub remaining_ticks: u16,
-}
-
-impl ProjectileState {
-    pub const SPACE: usize = 1 + 1 + 4 + 4 + 2 + 2 + 2 + 2;
-}
-
-#[account]
-pub struct World {
-    pub match_config: Pubkey,
-    pub authority: Pubkey,
-    pub tick: u32,
-    pub phase: MatchPhase,
-    pub players: [PlayerState; MAX_PLAYERS],
-    pub projectiles: [ProjectileState; MAX_PROJECTILES],
-    pub scores: [u16; MAX_PLAYERS],
-    pub secret_salt: [u8; 32],
-    pub scrubbed: bool,
-    pub bump: u8,
-}
-
-impl World {
-    pub const SPACE: usize = 8
-        + 32
-        + 32
-        + 4
-        + 1
-        + (PlayerState::SPACE * MAX_PLAYERS)
-        + (ProjectileState::SPACE * MAX_PROJECTILES)
-        + (2 * MAX_PLAYERS)
-        + 32
-        + 1
-        + 1;
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
-pub struct VisibleEntity {
-    pub visible: bool,
-    pub player_index: u8,
-    pub x: i32,
-    pub y: i32,
-    pub health: u16,
-}
-
-impl VisibleEntity {
-    pub const SPACE: usize = 1 + 1 + 4 + 4 + 2;
-}
-
-#[account]
-pub struct PlayerView {
-    pub match_config: Pubkey,
-    pub player: Pubkey,
-    pub tick: u32,
-    pub own_state: PlayerState,
-    pub visible_players: [VisibleEntity; MAX_PLAYERS - 1],
-    pub bump: u8,
-}
-
-impl PlayerView {
-    pub const SPACE: usize =
-        8 + 32 + 32 + 4 + PlayerState::SPACE + (VisibleEntity::SPACE * (MAX_PLAYERS - 1)) + 1;
-}
-
-#[account]
-pub struct MatchResult {
-    pub match_config: Pubkey,
-    pub winner: Pubkey,
-    pub scores: [u16; MAX_PLAYERS],
-    pub final_tick: u32,
-    pub rules_hash: [u8; 32],
-    pub result_digest: [u8; 32],
-    pub settlement_id: [u8; 32],
-    pub settled: bool,
-    pub bump: u8,
-}
-
-impl MatchResult {
-    pub const SPACE: usize = 8 + 32 + 32 + (2 * MAX_PLAYERS) + 4 + 32 + 32 + 32 + 1 + 1;
-}
-
-#[account]
-pub struct PlayerRating {
-    pub player: Pubkey,
-    pub games: u32,
-    pub wins: u32,
-    pub rating: i32,
-    pub last_settled_match: Pubkey,
-    pub bump: u8,
-}
-
-impl PlayerRating {
-    pub const SPACE: usize = 8 + 32 + 4 + 4 + 4 + 32 + 1;
-}
-
-#[account]
-pub struct SettlementMarker {
-    pub settlement_id: [u8; 32],
-    pub match_config: Pubkey,
-    pub result_digest: [u8; 32],
-    pub bump: u8,
-}
-
-impl SettlementMarker {
-    pub const SPACE: usize = 8 + 32 + 32 + 32 + 1;
-}
-
-#[account]
-pub struct PrivateProbe {
-    pub authority: Pubkey,
-    pub secret: u64,
-    pub bump: u8,
-}
-
-impl PrivateProbe {
-    pub const SPACE: usize = 32 + 8 + 1;
-}
+pub struct SessionLedger { pub policy: Pubkey, pub controller: Pubkey, pub agent: Pubkey, pub permit_nonce: u64, pub reserved_amount: u64, pub permit_expires_at_slot: u64, pub spent_amount: u64, pub state: PermitState, pub scrubbed: bool, pub bump: u8 }
+impl SessionLedger { pub const SPACE: usize = 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1 + 1; }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
-pub enum MatchPhase {
-    Created,
-    Funded,
-    Delegated,
-    Ready,
-    Running,
-    Finished,
-    Committing,
-    Settled,
-    Closed,
-}
+pub enum PermitState { Idle, Reserved, Spent, Expired }
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("The match configuration is invalid.")]
-    InvalidMatchConfig,
-    #[msg("The signer is not authorized for this operation.")]
-    Unauthorized,
-    #[msg("The signer cannot read this player view.")]
-    UnauthorizedView,
-    #[msg("The match is not in the required phase.")]
-    WrongPhase,
-    #[msg("The match already has four players.")]
-    MatchFull,
-    #[msg("The player is already in this match.")]
-    DuplicatePlayer,
-    #[msg("The input sequence is a replay or is invalid.")]
-    Replay,
-    #[msg("The input tick is outside the accepted future window.")]
-    TickOutOfRange,
-    #[msg("The input values are outside the allowed bounds.")]
-    InvalidInput,
-    #[msg("A previous input is still pending for this player.")]
-    InputPending,
-    #[msg("Private state is not wired until the PER no-reader gate passes.")]
-    PrivateStateNotReady,
-    #[msg("The private probe must be scrubbed before undelegation.")]
-    ProbeNotScrubbed,
-    #[msg("The match settlement caller is not authorized.")]
-    UnauthorizedSettlement,
-    #[msg("The match result has already been settled.")]
-    AlreadySettled,
-    #[msg("The result does not match the finished private state.")]
-    InvalidResult,
-    #[msg("An arithmetic operation overflowed.")]
-    ArithmeticOverflow,
+    #[msg("Invalid policy.")] InvalidPolicy,
+    #[msg("Invalid permit.")] InvalidPermit,
+    #[msg("Policy is already configured.")] AlreadyConfigured,
+    #[msg("Policy is not configured.")] NotConfigured,
+    #[msg("Budget exceeded.")] BudgetExceeded,
+    #[msg("Reservation already exists.")] ReservationExists,
+    #[msg("No reservation exists.")] NoReservation,
+    #[msg("Permit expired.")] Expired,
+    #[msg("Permit is not expired.")] NotExpired,
+    #[msg("Permit replay.")] Replay,
+    #[msg("Arithmetic overflow.")] ArithmeticOverflow,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    fn policy() -> SecretPolicy { SecretPolicy { controller: Pubkey::default(), policy_id: 1, policy_hash: [1; 32], remaining_budget: 100, expires_at_slot: 100, next_permit: 0, scrubbed: false, bump: 0 } }
+    fn session() -> SessionLedger { SessionLedger { policy: Pubkey::default(), controller: Pubkey::default(), agent: Pubkey::default(), permit_nonce: 0, reserved_amount: 0, permit_expires_at_slot: 0, spent_amount: 0, state: PermitState::Idle, scrubbed: true, bump: 0 } }
     #[test]
-    fn private_accounts_are_fixed_size() {
-        assert_eq!(World::SPACE, 767);
-        assert_eq!(PlayerView::SPACE, 131);
-        assert_eq!(InputInbox::SPACE, 92);
-        assert_eq!(MatchResult::SPACE, 182);
+    fn permit_is_single_use() {
+        let mut policy = policy(); let mut session = session();
+        reserve(&mut policy, &mut session, 40, 20, 10).unwrap();
+        assert_eq!(policy.remaining_budget, 60);
+        assert!(consume(&mut session, 2, 11).is_err());
+        consume(&mut session, 1, 11).unwrap();
+        assert_eq!(session.spent_amount, 40);
+        assert!(consume(&mut session, 1, 11).is_err());
     }
 }
