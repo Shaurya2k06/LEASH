@@ -274,5 +274,54 @@ gate("LEASH TEE sibling-read gate", () => {
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
+    await send(
+      agentEr,
+      await program.methods
+        .closeSessionPermission()
+        .accountsPartial({
+          agent: agent.publicKey,
+          session,
+          permission: sessionPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
+    await send(
+      controllerEr,
+      await program.methods
+        .closePolicyPermission()
+        .accountsPartial({
+          controller: controller.publicKey,
+          policy,
+          permission: policyPermission,
+          magicProgram: MAGIC_PROGRAM_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          ephemeralVault: VAULT_ID,
+        })
+        .transaction()
+    );
+    await send(
+      agentEr,
+      await program.methods
+        .undelegateSession()
+        .accountsPartial({ payer: agent.publicKey, session })
+        .transaction()
+    );
+    await send(
+      controllerEr,
+      await program.methods
+        .undelegatePolicy()
+        .accountsPartial({ payer: controller.publicKey, policy })
+        .transaction()
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const tornDown = await base.connection.getMultipleAccountsInfo([
+      policy,
+      session,
+    ]);
+    if (tornDown.some((account) => account?.data.indexOf(amountBytes) >= 0))
+      throw new Error("teardown committed the reservation to base RPC");
   });
 });

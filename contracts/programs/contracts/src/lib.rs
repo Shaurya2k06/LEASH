@@ -2,12 +2,13 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 use ephemeral_rollups_sdk::{
     access_control::{
-        instructions::CreateEphemeralPermissionCpi,
+        instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
         structs::{EphemeralMembersArgs, EphemeralPermission, Member, PERMISSION_SEED, TX_BALANCES_FLAG, TX_LOGS_FLAG, TX_MESSAGE_FLAG},
     },
-    anchor::{delegate, ephemeral},
+    anchor::{commit, delegate, ephemeral},
     consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID},
     cpi::DelegateConfig,
+    ephem::MagicIntentBundleBuilder,
 };
 
 declare_id!("3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe");
@@ -143,6 +144,65 @@ pub mod contracts {
         session.scrubbed = true;
         Ok(())
     }
+
+    pub fn close_policy_permission(ctx: Context<PolicyPermission>) -> Result<()> {
+        let policy = &ctx.accounts.policy;
+        let id = policy.policy_id.to_le_bytes();
+        let bump = [policy.bump];
+        CloseEphemeralPermissionCpi {
+            payer: policy.to_account_info(),
+            permissioned_account: policy.to_account_info(),
+            permission: ctx.accounts.permission.to_account_info(),
+            vault: ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: ctx.accounts.magic_program.to_account_info(),
+            permission_program: ctx.accounts.permission_program.to_account_info(),
+            authority: policy.to_account_info(),
+            authority_is_signer: false,
+        }
+        .invoke_signed(&[&[POLICY_SEED, policy.controller.as_ref(), &id, &bump]])?;
+        Ok(())
+    }
+
+    pub fn close_session_permission(ctx: Context<SessionPermission>) -> Result<()> {
+        let session = &ctx.accounts.session;
+        let bump = [session.bump];
+        CloseEphemeralPermissionCpi {
+            payer: session.to_account_info(),
+            permissioned_account: session.to_account_info(),
+            permission: ctx.accounts.permission.to_account_info(),
+            vault: ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: ctx.accounts.magic_program.to_account_info(),
+            permission_program: ctx.accounts.permission_program.to_account_info(),
+            authority: session.to_account_info(),
+            authority_is_signer: false,
+        }
+        .invoke_signed(&[&[SESSION_SEED, session.policy.as_ref(), session.agent.as_ref(), &bump]])?;
+        Ok(())
+    }
+
+    pub fn undelegate_policy(ctx: Context<UndelegatePolicy>) -> Result<()> {
+        require!(ctx.accounts.policy.scrubbed, ErrorCode::NotScrubbed);
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit_and_undelegate(&[ctx.accounts.policy.to_account_info()])
+        .build_and_invoke()?;
+        Ok(())
+    }
+
+    pub fn undelegate_session(ctx: Context<UndelegateSession>) -> Result<()> {
+        require!(ctx.accounts.session.scrubbed, ErrorCode::NotScrubbed);
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit_and_undelegate(&[ctx.accounts.session.to_account_info()])
+        .build_and_invoke()?;
+        Ok(())
+    }
 }
 
 fn members(keys: Vec<Pubkey>) -> EphemeralMembersArgs {
@@ -262,6 +322,20 @@ pub struct SessionPermission<'info> {
     #[account(address = MAGIC_PROGRAM_ID)] pub magic_program: UncheckedAccount<'info>,
 }
 
+#[commit]
+#[derive(Accounts)]
+pub struct UndelegatePolicy<'info> {
+    #[account(mut)] pub payer: Signer<'info>,
+    #[account(mut)] pub policy: Account<'info, SecretPolicy>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct UndelegateSession<'info> {
+    #[account(mut)] pub payer: Signer<'info>,
+    #[account(mut)] pub session: Account<'info, SessionLedger>,
+}
+
 #[account]
 pub struct SecretPolicy { pub controller: Pubkey, pub policy_id: u64, pub policy_hash: [u8; 32], pub remaining_budget: u64, pub expires_at_slot: u64, pub next_permit: u64, pub scrubbed: bool, pub bump: u8 }
 impl SecretPolicy { pub const SPACE: usize = 32 + 8 + 32 + 8 + 8 + 8 + 1 + 1; }
@@ -286,6 +360,7 @@ pub enum ErrorCode {
     #[msg("Permit is not expired.")] NotExpired,
     #[msg("Permit replay.")] Replay,
     #[msg("Arithmetic overflow.")] ArithmeticOverflow,
+    #[msg("Private state must be scrubbed before undelegation.")] NotScrubbed,
 }
 
 #[cfg(test)]
