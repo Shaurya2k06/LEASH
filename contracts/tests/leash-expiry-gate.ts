@@ -1,13 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
 import {
-  createMint,
-  getAccount,
-  getOrCreateAssociatedTokenAccount,
-  mintTo,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
-import {
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
@@ -31,8 +24,7 @@ const VAULT_ID = new web3.PublicKey(
 const TEE_VALIDATOR = new web3.PublicKey(
   process.env.MB_TEE_VALIDATOR || "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
-const gate =
-  process.env.LEASH_SETTLEMENT_TEST === "1" ? describe : describe.skip;
+const gate = process.env.LEASH_EXPIRY_TEST === "1" ? describe : describe.skip;
 
 const withToken = (endpoint: string, token: string) =>
   `${endpoint}?token=${encodeURIComponent(token)}`;
@@ -89,8 +81,8 @@ async function mustFail(action: Promise<unknown>, message: string) {
   throw new Error(message);
 }
 
-gate("LEASH Magic Action settlement gate", () => {
-  it("pays once through the authenticated action and leaves a terminal marker", async () => {
+gate("LEASH expiry terminal gate", () => {
+  it("publishes expiry and prevents a later payment race", async () => {
     const baseEndpoint =
       process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
     const teeEndpoint = (
@@ -135,7 +127,7 @@ gate("LEASH Magic Action settlement gate", () => {
       controller.publicKey,
       ACTION_ESCROW_INDEX
     );
-    const amount = new anchor.BN(1_500_000);
+    const amount = new anchor.BN(42);
 
     await verifyTeeRpcIntegrity(teeEndpoint);
     await base.sendAndConfirm(
@@ -147,35 +139,6 @@ gate("LEASH Magic Action settlement gate", () => {
         })
       ),
       [controller]
-    );
-
-    const mint = await createMint(
-      base.connection,
-      controller,
-      controller.publicKey,
-      null,
-      6
-    );
-    const sourceVault = await getOrCreateAssociatedTokenAccount(
-      base.connection,
-      controller,
-      mint,
-      escrow,
-      true
-    );
-    const recipientToken = await getOrCreateAssociatedTokenAccount(
-      base.connection,
-      controller,
-      mint,
-      agent.publicKey
-    );
-    await mintTo(
-      base.connection,
-      controller,
-      mint,
-      sourceVault.address,
-      controller,
-      1_000_000
     );
     await send(
       base,
@@ -212,9 +175,9 @@ gate("LEASH Magic Action settlement gate", () => {
     await program.methods
       .createSettlementReceipt(
         agent.publicKey,
-        recipientToken.address,
-        sourceVault.address,
-        mint
+        agent.publicKey,
+        controller.publicKey,
+        controller.publicKey
       )
       .accountsPartial({
         controller: controller.publicKey,
@@ -285,51 +248,39 @@ gate("LEASH Magic Action settlement gate", () => {
         })
         .transaction()
     );
-    const expiresAt = new anchor.BN(
-      (await controllerEr.connection.getSlot()) + 500
+    const policyExpiry = new anchor.BN(
+      (await controllerEr.connection.getSlot()) + 300
+    );
+    const permitExpiry = new anchor.BN(
+      (await controllerEr.connection.getSlot()) + 20
     );
     await send(
       controllerEr,
       await program.methods
-        .configurePolicy(Array(32).fill(9), amount, expiresAt)
+        .configurePolicy(Array(32).fill(5), amount, policyExpiry)
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
     await send(
       controllerEr,
       await program.methods
-        .issuePermit(amount, expiresAt)
+        .issuePermit(amount, permitExpiry)
         .accountsPartial({ controller: controller.publicKey, policy, session })
         .transaction()
     );
 
-    await mustFail(
-      send(
-        base,
-        await program.methods
-          .settleAction()
-          .accountsPartial({
-            receipt,
-            terminal,
-            sourceVault: sourceVault.address,
-            recipientToken: recipientToken.address,
-            mint,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            sourceProgram: program.programId,
-            escrowAuth: controller.publicKey,
-            escrow,
-          })
-          .transaction()
-      ),
-      "direct Magic Action invocation unexpectedly succeeded"
-    );
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if ((await controllerEr.connection.getSlot()) > permitExpiry.toNumber())
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if ((await controllerEr.connection.getSlot()) <= permitExpiry.toNumber())
+      throw new Error("permit did not reach expiry during the gate");
 
-    const before = (await getAccount(base.connection, recipientToken.address))
-      .amount;
     await send(
       controllerEr,
       await program.methods
-        .settlePermit()
+        .expirePermit()
         .accountsPartial({
           policy,
           session,
@@ -338,10 +289,10 @@ gate("LEASH Magic Action settlement gate", () => {
         })
         .transaction()
     );
-    const failedSettleSignature = await send(
+    await send(
       controllerEr,
       await program.methods
-        .commitSettlement()
+        .commitExpiry()
         .accountsPartial({
           receipt,
           terminal,
@@ -352,119 +303,50 @@ gate("LEASH Magic Action settlement gate", () => {
         .transaction()
     );
 
-    let failedWithoutConsuming = false;
+    let expired = false;
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const marker = await program.account.terminalMarker.fetchNullable(
         terminal
       );
-      const balance = (
-        await getAccount(base.connection, recipientToken.address)
-      ).amount;
-      const receiptInfo = await base.connection.getAccountInfo(receipt);
-      if (
-        marker?.kind?.open !== undefined &&
-        balance === before &&
-        receiptInfo?.owner.equals(program.programId)
-      ) {
-        failedWithoutConsuming = true;
+      if (marker?.kind?.expired !== undefined) {
+        expired = true;
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
-    if (!failedWithoutConsuming) {
-      const scheduled = await controllerEr.connection.getTransaction(
-        failedSettleSignature,
-        { maxSupportedTransactionVersion: 0 }
-      );
-      throw new Error(
-        `failed Magic Action did not preserve the reservation; schedule=${failedSettleSignature}\n${
-          scheduled?.meta?.logMessages?.join("\n") || "no schedule logs"
-        }`
-      );
-    }
+    if (!expired)
+      throw new Error("expiry action did not publish its terminal marker");
 
-    const reserved = await program.account.sessionLedger.fetch(
-      session,
-      "confirmed"
+    await mustFail(
+      send(
+        controllerEr,
+        await program.methods
+          .settlePermit()
+          .accountsPartial({
+            policy,
+            session,
+            receipt,
+            controller: controller.publicKey,
+          })
+          .transaction()
+      ),
+      "expired permit was accepted for settlement"
     );
-    if (reserved.state.reserved === undefined)
-      throw new Error("failed payment consumed the private reservation");
-
-    await mintTo(
-      base.connection,
-      controller,
-      mint,
-      sourceVault.address,
-      controller,
-      1_000_000
-    );
-    await send(
-      controllerEr,
-      await program.methods
-        .commitSettlement()
-        .accountsPartial({
-          receipt,
-          terminal,
-          controller: controller.publicKey,
-          magicContext: MAGIC_CONTEXT_ID,
-          magicProgram: MAGIC_PROGRAM_ID,
-        })
-        .transaction()
-    );
-
-    let settled = false;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const marker = await program.account.terminalMarker.fetchNullable(
-        terminal
-      );
-      const balance = (
-        await getAccount(base.connection, recipientToken.address)
-      ).amount;
-      if (
-        marker?.kind?.spent !== undefined &&
-        balance === before + BigInt(amount.toString())
-      ) {
-        settled = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-    if (!settled)
-      throw new Error("Magic Action retry did not settle the receipt");
-
-    await send(
-      agentEr,
-      await program.methods
-        .consumePermit(new anchor.BN(1))
-        .accountsPartial({ agent: agent.publicKey, session })
-        .transaction()
-    );
-    const spent = await program.account.sessionLedger.fetch(
-      session,
-      "confirmed"
-    );
-    if (spent.state.spent === undefined)
-      throw new Error("successful payment did not consume the reservation");
-
     await mustFail(
       send(
         base,
         await program.methods
-          .settleAction()
+          .expireAction()
           .accountsPartial({
             receipt,
             terminal,
-            sourceVault: sourceVault.address,
-            recipientToken: recipientToken.address,
-            mint,
-            tokenProgram: TOKEN_PROGRAM_ID,
             sourceProgram: program.programId,
             escrowAuth: controller.publicKey,
             escrow,
           })
           .transaction()
       ),
-      "replayed Magic Action unexpectedly succeeded"
+      "expired terminal marker was replayable"
     );
 
     await send(

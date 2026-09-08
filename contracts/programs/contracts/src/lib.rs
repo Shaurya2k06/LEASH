@@ -235,9 +235,20 @@ pub mod contracts {
     }
 
     pub fn settle_permit(ctx: Context<SettlePermit>) -> Result<()> {
+        require!(
+            ctx.accounts.session.state == PermitState::Reserved,
+            ErrorCode::NoReservation
+        );
+        require!(
+            Clock::get()?.slot <= ctx.accounts.session.permit_expires_at_slot,
+            ErrorCode::Expired
+        );
+        require!(
+            ctx.accounts.receipt.status == ReceiptStatus::Empty,
+            ErrorCode::AlreadySettled
+        );
         let amount = ctx.accounts.session.reserved_amount;
         let nonce = ctx.accounts.session.permit_nonce;
-        consume(&mut ctx.accounts.session, nonce, Clock::get()?.slot)?;
 
         let nonce_bytes = nonce.to_le_bytes();
         let amount_bytes = amount.to_le_bytes();
@@ -254,10 +265,6 @@ pub mod contracts {
         .0
         .to_bytes();
         let receipt = &mut ctx.accounts.receipt;
-        require!(
-            receipt.status == ReceiptStatus::Empty,
-            ErrorCode::AlreadySettled
-        );
         receipt.nonce = nonce;
         receipt.amount = amount;
         receipt.digest = digest;
@@ -306,14 +313,21 @@ pub mod contracts {
             destination_program: crate::ID,
             accounts: action_accounts,
         };
-        MagicIntentBundleBuilder::new(
+        let builder = MagicIntentBundleBuilder::new(
             ctx.accounts.controller.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
             ctx.accounts.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[receipt.to_account_info()])
-        .add_post_undelegate_actions([action])
-        .build_and_invoke()?;
+        );
+        if receipt.to_account_info().owner == &ephemeral_rollups_sdk::id() {
+            builder
+                .commit_and_undelegate(&[receipt.to_account_info()])
+                .add_post_undelegate_actions([action])
+                .build_and_invoke()?;
+        } else {
+            builder
+                .add_standalone_actions([action])
+                .build_and_invoke()?;
+        }
         Ok(())
     }
 
@@ -321,7 +335,7 @@ pub mod contracts {
         consume(&mut ctx.accounts.session, nonce, Clock::get()?.slot)
     }
 
-    pub fn expire_permit(ctx: Context<SessionController>) -> Result<()> {
+    pub fn expire_permit(ctx: Context<ExpirePermit>) -> Result<()> {
         let session = &mut ctx.accounts.session;
         require!(
             session.state == PermitState::Reserved,
@@ -331,6 +345,26 @@ pub mod contracts {
             Clock::get()?.slot > session.permit_expires_at_slot,
             ErrorCode::NotExpired
         );
+        require!(
+            ctx.accounts.receipt.status == ReceiptStatus::Empty,
+            ErrorCode::AlreadySettled
+        );
+        let amount = session.reserved_amount;
+        let nonce = session.permit_nonce;
+        let nonce_bytes = nonce.to_le_bytes();
+        let amount_bytes = amount.to_le_bytes();
+        let digest = Pubkey::find_program_address(
+            &[
+                b"digest",
+                ctx.accounts.policy.policy_hash.as_ref(),
+                &nonce_bytes,
+                &amount_bytes,
+                ctx.accounts.receipt.recipient.as_ref(),
+            ],
+            &crate::ID,
+        )
+        .0
+        .to_bytes();
         ctx.accounts.policy.remaining_budget = ctx
             .accounts
             .policy
@@ -339,6 +373,53 @@ pub mod contracts {
             .ok_or(ErrorCode::ArithmeticOverflow)?;
         session.reserved_amount = 0;
         session.state = PermitState::Expired;
+        let receipt = &mut ctx.accounts.receipt;
+        receipt.nonce = nonce;
+        receipt.amount = amount;
+        receipt.digest = digest;
+        receipt.status = ReceiptStatus::Expired;
+        Ok(())
+    }
+
+    pub fn commit_expiry(ctx: Context<CommitExpiry>) -> Result<()> {
+        let receipt = &ctx.accounts.receipt;
+        require!(
+            receipt.status == ReceiptStatus::Expired,
+            ErrorCode::InvalidSettlement
+        );
+        let action = ephemeral_rollups_sdk::ephem::CallHandler {
+            args: ActionArgs::new(anchor_lang::InstructionData::data(
+                &crate::instruction::ExpireAction {},
+            )),
+            compute_units: 100_000,
+            escrow_authority: ctx.accounts.controller.to_account_info(),
+            destination_program: crate::ID,
+            accounts: vec![
+                ShortAccountMeta {
+                    pubkey: receipt.key(),
+                    is_writable: true,
+                },
+                ShortAccountMeta {
+                    pubkey: ctx.accounts.terminal.key(),
+                    is_writable: true,
+                },
+            ],
+        };
+        let builder = MagicIntentBundleBuilder::new(
+            ctx.accounts.controller.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        );
+        if receipt.to_account_info().owner == &ephemeral_rollups_sdk::id() {
+            builder
+                .commit_and_undelegate(&[receipt.to_account_info()])
+                .add_post_undelegate_actions([action])
+                .build_and_invoke()?;
+        } else {
+            builder
+                .add_standalone_actions([action])
+                .build_and_invoke()?;
+        }
         Ok(())
     }
 
@@ -487,6 +568,35 @@ pub mod contracts {
         terminal.digest = receipt.digest;
         terminal.kind = TerminalKind::Spent;
         receipt.status = ReceiptStatus::Settled;
+        Ok(())
+    }
+
+    pub fn expire_action(ctx: Context<ExpireAction>) -> Result<()> {
+        let receipt = &mut ctx.accounts.receipt;
+        require!(
+            receipt.status == ReceiptStatus::Expired,
+            ErrorCode::InvalidSettlement
+        );
+        require!(
+            receipt.amount > 0 && receipt.nonce > 0,
+            ErrorCode::InvalidSettlement
+        );
+        require_keys_eq!(
+            receipt.controller,
+            ctx.accounts.escrow_auth.key(),
+            ErrorCode::UnauthorizedSettlement
+        );
+        let terminal = &mut ctx.accounts.terminal;
+        require!(
+            terminal.kind == TerminalKind::Open,
+            ErrorCode::AlreadySettled
+        );
+        terminal.policy = receipt.policy;
+        terminal.session = receipt.session;
+        terminal.nonce = receipt.nonce;
+        terminal.amount = receipt.amount;
+        terminal.digest = receipt.digest;
+        terminal.kind = TerminalKind::Expired;
         Ok(())
     }
 }
@@ -681,10 +791,36 @@ pub struct SettlePermit<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ExpirePermit<'info> {
+    #[account(mut, has_one = controller)]
+    pub policy: Account<'info, SecretPolicy>,
+    #[account(mut, has_one = policy, has_one = controller)]
+    pub session: Account<'info, SessionLedger>,
+    #[account(mut, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
+    pub receipt: Account<'info, SettlementReceipt>,
+    pub controller: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CommitSettlement<'info> {
     #[account(mut, has_one = controller)]
     pub receipt: Account<'info, SettlementReceipt>,
     #[account(seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    pub terminal: Account<'info, TerminalMarker>,
+    pub controller: Signer<'info>,
+    /// CHECK: fixed MagicBlock context account.
+    #[account(mut)]
+    pub magic_context: UncheckedAccount<'info>,
+    /// CHECK: fixed MagicBlock program.
+    #[account(address = MAGIC_PROGRAM_ID)]
+    pub magic_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CommitExpiry<'info> {
+    #[account(mut, has_one = controller)]
+    pub receipt: Account<'info, SettlementReceipt>,
+    #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
     /// CHECK: fixed MagicBlock context account.
@@ -791,6 +927,30 @@ pub struct SettleAction<'info> {
     pub escrow: UncheckedAccount<'info>,
 }
 
+#[action]
+#[derive(Accounts)]
+pub struct ExpireAction<'info> {
+    #[account(mut, seeds = [RECEIPT_SEED, receipt.session.as_ref()], bump = receipt.bump)]
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
+    #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump)]
+    pub terminal: Box<Account<'info, TerminalMarker>>,
+    /// CHECK: fixed source-program account injected by the delegation program.
+    #[account(address = crate::ID)]
+    pub source_program: UncheckedAccount<'info>,
+    /// CHECK: MagicBlock binds this account to the action's escrow PDA.
+    #[account(address = receipt.controller)]
+    pub escrow_auth: UncheckedAccount<'info>,
+    /// CHECK: Only MagicBlock can sign for this derived escrow PDA.
+    #[account(
+        signer,
+        address = ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer(
+            &escrow_auth.key(),
+            ACTION_ESCROW_INDEX,
+        )
+    )]
+    pub escrow: UncheckedAccount<'info>,
+}
+
 #[account]
 pub struct SecretPolicy {
     pub controller: Pubkey,
@@ -869,6 +1029,7 @@ pub enum ReceiptStatus {
     Empty,
     Pending,
     Settled,
+    Expired,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]

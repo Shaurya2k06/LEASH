@@ -6,7 +6,9 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "typecheck": "tsc --noEmit",
     "test:leash": "ts-mocha -p ./tsconfig.json -t 1000000 tests/leash.ts",
-    "test:leash:per": "LEASH_PER_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts"
+    "test:leash:per": "LEASH_PER_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts",
+    "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
+    "test:leash:expiry": "LEASH_EXPIRY_TEST=1 ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",
