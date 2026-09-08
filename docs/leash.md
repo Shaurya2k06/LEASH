@@ -32,7 +32,7 @@ claims a private game.
 
 | Account | Location | Public data |
 | --- | --- | --- |
-| `PolicyStub` | Solana then delegated | controller and PDA metadata only |
+| `SecretPolicy` | Solana then delegated | controller and PDA metadata only before private configuration |
 | `SecretPolicy` | Private PER | policy hash, budget, expiry, permit nonce |
 | `SessionLedger` | Private PER | agent reservation and spent total |
 | `TerminalMarker` | Solana | permit digest and terminal kind only |
@@ -58,7 +58,8 @@ SOLANA_RPC_URL=https://rpc.magicblock.app/devnet BENCHMARK_SAMPLES=100 yarn benc
 
 These live gates cover sibling-read denial, authenticated SPL payment,
 underfunded-action rollback and retry, replay rejection, and expiry/payment
-mutual exclusion, plus twenty-agent contention for one remaining budget. The
+mutual exclusion, plus twenty private-session contention for one remaining
+budget. The
 operator client polls only public health; the relay transports already-signed
 RPC payloads and has no outcome authority. The benchmark measures only
 `getSlot(confirmed)` transport health, not permit/action latency.

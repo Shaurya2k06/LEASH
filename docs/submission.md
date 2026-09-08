@@ -1,4 +1,4 @@
-# BLACKOUT submission checklist
+# LEASH / BLACKOUT submission checklist
 
 Last checked: 2026-09-08
 
@@ -13,4 +13,4 @@ Last checked: 2026-09-08
 | Pre-existing-code rule | Unverified | Project owner must confirm in BUILD/Discord before submission. |
 | Required demo format | Unverified | Project owner must confirm in BUILD/Discord before submission. |
 
-BLACKOUT must not claim eligibility is complete until the four unverified items are resolved.
+LEASH must not claim eligibility is complete until the four unverified items are resolved.

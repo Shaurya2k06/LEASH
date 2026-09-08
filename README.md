@@ -38,8 +38,8 @@ SOLANA_RPC_URL=https://rpc.magicblock.app/devnet BENCHMARK_SAMPLES=100 yarn benc
 ```
 
 The contracts pin Rust 1.89.0 and Anchor 1.0.2. The sibling-read privacy gate,
-authenticated SPL settlement gate, failed-payment retry, and expiry terminal
-gate, and twenty-agent budget race pass against the deployed devnet TEE binary.
+authenticated SPL settlement gate, failed-payment retry, expiry terminal gate,
+and twenty-session budget race pass against the deployed devnet TEE binary.
 The relay only forwards allowlisted JSON-RPC payloads; it cannot sign or choose
 an outcome.
 
