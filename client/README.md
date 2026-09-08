@@ -1,16 +1,17 @@
-# React + Vite
+# LEASH operator view
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This Vite app is a read-only cockpit for the LEASH devnet evidence. It polls
+the public Solana RPC for slot/program health and shows recorded attack-gate
+outcomes. It never downloads private policy/session accounts and cannot sign,
+settle, or choose an agent outcome.
 
-Currently, two official plugins are available:
+```sh
+npm install
+npm run dev
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Optional Vite variables:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `VITE_SOLANA_RPC_URL`
+- `VITE_PROGRAM_ID`
+- `VITE_RELAY_URL`

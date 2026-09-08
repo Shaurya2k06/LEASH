@@ -52,9 +52,11 @@ From `contracts/` with a local wallet path:
 SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:per
 SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:settlement
 SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:expiry
+SOLANA_RPC_URL=https://rpc.magicblock.app/devnet yarn test:leash:race
 ```
 
 These live gates cover sibling-read denial, authenticated SPL payment,
 underfunded-action rollback and retry, replay rejection, and expiry/payment
-mutual exclusion. Twenty-agent contention, the operator client/crank, and
-latency evidence remain unfinished.
+mutual exclusion, plus twenty-agent contention for one remaining budget. The
+operator client polls only public health; the relay transports already-signed
+RPC payloads and has no outcome authority. Latency evidence remains unfinished.
