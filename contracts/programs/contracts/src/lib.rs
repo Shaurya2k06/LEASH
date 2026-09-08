@@ -59,11 +59,11 @@ pub mod contracts {
         Ok(())
     }
 
-    pub fn delegate_session(ctx: Context<DelegateSession>) -> Result<()> {
+    pub fn delegate_session(ctx: Context<DelegateSession>, policy: Pubkey) -> Result<()> {
         if ctx.accounts.session.owner != &ephemeral_rollups_sdk::id() {
             ctx.accounts.delegate_session(
                 &ctx.accounts.agent,
-                &[SESSION_SEED, ctx.accounts.policy.key().as_ref(), ctx.accounts.agent.key().as_ref()],
+                &[SESSION_SEED, policy.as_ref(), ctx.accounts.agent.key().as_ref()],
                 DelegateConfig { validator: ctx.accounts.validator.as_ref().map(|v| v.key()), ..Default::default() },
             )?;
         }
@@ -133,6 +133,16 @@ pub mod contracts {
         policy.policy_hash = [0; 32]; policy.remaining_budget = 0; policy.expires_at_slot = 0; policy.next_permit = 0; policy.scrubbed = true;
         Ok(())
     }
+
+    pub fn scrub_session(ctx: Context<SessionController>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        session.reserved_amount = 0;
+        session.permit_expires_at_slot = 0;
+        session.spent_amount = 0;
+        session.state = PermitState::Idle;
+        session.scrubbed = true;
+        Ok(())
+    }
 }
 
 fn members(keys: Vec<Pubkey>) -> EphemeralMembersArgs {
@@ -187,7 +197,7 @@ pub struct CreateSession<'info> {
 #[derive(Accounts)]
 #[instruction(policy_id: u64)]
 pub struct DelegatePolicy<'info> {
-    pub controller: Signer<'info>,
+    #[account(mut)] pub controller: Signer<'info>,
     /// CHECK: checked by the delegation program and canonical PDA seeds.
     #[account(mut, del, seeds = [POLICY_SEED, controller.key().as_ref(), &policy_id.to_le_bytes()], bump)] pub policy: UncheckedAccount<'info>,
     /// CHECK: checked by the delegation program.
@@ -196,11 +206,11 @@ pub struct DelegatePolicy<'info> {
 
 #[delegate]
 #[derive(Accounts)]
+#[instruction(policy: Pubkey)]
 pub struct DelegateSession<'info> {
-    pub agent: Signer<'info>,
-    pub policy: Account<'info, SecretPolicy>,
+    #[account(mut)] pub agent: Signer<'info>,
     /// CHECK: checked by the delegation program and canonical PDA seeds.
-    #[account(mut, del, seeds = [SESSION_SEED, policy.key().as_ref(), agent.key().as_ref()], bump)] pub session: UncheckedAccount<'info>,
+    #[account(mut, del, seeds = [SESSION_SEED, policy.as_ref(), agent.key().as_ref()], bump)] pub session: UncheckedAccount<'info>,
     /// CHECK: checked by the delegation program.
     pub validator: Option<UncheckedAccount<'info>>,
 }
