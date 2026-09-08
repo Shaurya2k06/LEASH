@@ -87,6 +87,8 @@ gate("LEASH TEE sibling-read gate", () => {
     const sessionPermission = permissionPdaFromAccount(session);
     const amount = new anchor.BN(76123);
     const amountBytes = amount.toArrayLike(Buffer, "le", 8);
+    let subscriptionId: number | undefined;
+    let subscriptionLeaked = false;
 
     await verifyTeeRpcIntegrity(teeEndpoint);
     await base.sendAndConfirm(
@@ -172,7 +174,16 @@ gate("LEASH TEE sibling-read gate", () => {
     const expiresAt = new anchor.BN(
       (await controllerEr.connection.getSlot()) + 100
     );
-    await send(
+    try {
+      subscriptionId = await siblingEr.connection.onAccountChange(
+        session,
+        (account) => {
+          if (account.data.indexOf(amountBytes) >= 0) subscriptionLeaked = true;
+        },
+        "confirmed"
+      );
+    } catch (_) {}
+    const issueSignature = await send(
       controllerEr,
       await program.methods
         .configurePolicy(Array(32).fill(7), amount, expiresAt)
@@ -200,6 +211,47 @@ gate("LEASH TEE sibling-read gate", () => {
     ]);
     if (siblingBatch.some(Boolean))
       throw new Error("sibling batch read the agent ledger");
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (subscriptionLeaked)
+      throw new Error("sibling subscription returned the reservation");
+    if (subscriptionId !== undefined)
+      await siblingEr.connection.removeAccountChangeListener(subscriptionId);
+    const transaction = await siblingEr.connection.getTransaction(
+      issueSignature,
+      { maxSupportedTransactionVersion: 0 }
+    );
+    if (
+      transaction?.transaction.message.compiledInstructions.some(
+        (instruction) => Buffer.from(instruction.data).indexOf(amountBytes) >= 0
+      )
+    )
+      throw new Error("sibling transaction RPC returned the reservation");
+    const simulation = await program.methods
+      .consumePermit(new anchor.BN(1))
+      .accountsPartial({ agent: agent.publicKey, session })
+      .transaction();
+    simulation.feePayer = agent.publicKey;
+    simulation.recentBlockhash = (
+      await agentEr.connection.getLatestBlockhash()
+    ).blockhash;
+    const simulated = await siblingEr.connection
+      .simulateTransaction(
+        await agentEr.wallet.signTransaction(simulation),
+        [],
+        [session]
+      )
+      .catch(() => undefined);
+    const simulatedAccount = simulated?.value.accounts?.[0];
+    if (
+      (simulated?.value.returnData &&
+        Buffer.from(simulated.value.returnData.data[0], "base64").indexOf(
+          amountBytes
+        ) >= 0) ||
+      (simulatedAccount &&
+        Buffer.from(simulatedAccount.data[0], "base64").indexOf(amountBytes) >=
+          0)
+    )
+      throw new Error("sibling simulation returned the reservation");
 
     await send(
       agentEr,
