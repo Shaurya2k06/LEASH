@@ -6,7 +6,8 @@ permits settle through an authenticated Magic Action SPL payment and a public
 terminal marker that can be spent or expired exactly once.
 
 See [`docs/leash.md`](./docs/leash.md) for invariants and
-[`docs/evidence.md`](./docs/evidence.md) for the deployed gate results.
+[`docs/evidence.md`](./docs/evidence.md) for the gate evidence. See
+[`SECURITY.md`](./SECURITY.md) for vulnerability reporting.
 
 ## Run the operator view
 

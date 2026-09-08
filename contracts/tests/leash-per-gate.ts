@@ -118,6 +118,8 @@ gate("LEASH TEE sibling-read gate", () => {
     const amount = new anchor.BN(76123);
     const amountBytes = amount.toArrayLike(Buffer, "le", 8);
     let subscriptionId: number | undefined;
+    let ownSubscriptionId: number | undefined;
+    let ownSubscriptionSeen = false;
     let subscriptionLeaked = false;
 
     await verifyTeeRpcIntegrity(teeEndpoint);
@@ -279,10 +281,17 @@ gate("LEASH TEE sibling-read gate", () => {
       (await controllerEr.connection.getSlot()) + 100
     );
     try {
+      ownSubscriptionId = await agentEr.connection.onAccountChange(
+        session,
+        () => {
+          ownSubscriptionSeen = true;
+        },
+        "confirmed"
+      );
       subscriptionId = await siblingEr.connection.onAccountChange(
         session,
-        (account) => {
-          if (account.data.indexOf(amountBytes) >= 0) subscriptionLeaked = true;
+        () => {
+          subscriptionLeaked = true;
         },
         "confirmed"
       );
@@ -335,11 +344,21 @@ gate("LEASH TEE sibling-read gate", () => {
     const siblingBatch = await siblingEr.connection.getMultipleAccountsInfo([
       session,
     ]);
+    const ownBatch = await agentEr.connection.getMultipleAccountsInfo([
+      session,
+    ]);
+    if (!ownBatch[0]) throw new Error("agent batch read was unavailable");
     if (siblingBatch.some(Boolean))
       throw new Error("sibling batch read the agent ledger");
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (!ownSubscriptionSeen)
+      throw new Error(
+        "agent subscription positive control did not observe the ledger"
+      );
     if (subscriptionLeaked)
       throw new Error("sibling subscription returned the reservation");
+    if (ownSubscriptionId !== undefined)
+      await agentEr.connection.removeAccountChangeListener(ownSubscriptionId);
     if (subscriptionId !== undefined)
       await siblingEr.connection.removeAccountChangeListener(subscriptionId);
     const transaction = await siblingEr.connection.getTransaction(
@@ -376,6 +395,16 @@ gate("LEASH TEE sibling-read gate", () => {
       [session]
     );
     if (!simulated) throw new Error("sibling simulation RPC returned null");
+    if (!simulated.value.err)
+      throw new Error("sibling simulation unexpectedly accepted the ledger");
+    if (
+      !JSON.stringify(simulated.value.err).toLowerCase().includes("permission")
+    )
+      throw new Error(
+        `sibling simulation returned an unexpected error: ${JSON.stringify(
+          simulated.value.err
+        )}`
+      );
     const simulatedAccount = simulated?.value.accounts?.[0];
     if (
       (simulated?.value.returnData &&

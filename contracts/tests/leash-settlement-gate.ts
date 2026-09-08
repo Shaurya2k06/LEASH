@@ -339,6 +339,87 @@ gate("LEASH Magic Action settlement gate", () => {
         .accountsPartial({ controller: controller.publicKey, policy })
         .transaction()
     );
+    const policyBeforeForbidden = await controllerEr.connection.getAccountInfo(
+      policy
+    );
+    const sessionBeforeForbidden = await agentEr.connection.getAccountInfo(
+      session
+    );
+    if (!policyBeforeForbidden || !sessionBeforeForbidden)
+      throw new Error("private state snapshot was unavailable");
+    await mustFailWith(
+      send(
+        agentEr,
+        await program.methods
+          .issuePermit(
+            amount,
+            expiresAt,
+            web3.Keypair.generate().publicKey,
+            ACTION_DISCRIMINATOR,
+            PAYLOAD_HASH,
+            agent.publicKey,
+            mint,
+            sourceVault.address
+          )
+          .accountsPartial({ agent: agent.publicKey, policy, session })
+          .transaction()
+      ),
+      "InvalidAction",
+      "wrong destination program was accepted"
+    );
+    await mustFailWith(
+      send(
+        agentEr,
+        await program.methods
+          .issuePermit(
+            amount,
+            expiresAt,
+            program.programId,
+            ACTION_DISCRIMINATOR,
+            PAYLOAD_HASH,
+            web3.Keypair.generate().publicKey,
+            mint,
+            sourceVault.address
+          )
+          .accountsPartial({ agent: agent.publicKey, policy, session })
+          .transaction()
+      ),
+      "InvalidAction",
+      "wrong recipient was accepted"
+    );
+    await mustFailWith(
+      send(
+        agentEr,
+        await program.methods
+          .issuePermit(
+            amount.addn(1),
+            expiresAt,
+            program.programId,
+            ACTION_DISCRIMINATOR,
+            PAYLOAD_HASH,
+            agent.publicKey,
+            mint,
+            sourceVault.address
+          )
+          .accountsPartial({ agent: agent.publicKey, policy, session })
+          .transaction()
+      ),
+      "InvalidAction",
+      "over-limit amount was accepted"
+    );
+    const policyAfterForbidden = await controllerEr.connection.getAccountInfo(
+      policy
+    );
+    const sessionAfterForbidden = await agentEr.connection.getAccountInfo(
+      session
+    );
+    if (
+      !policyAfterForbidden ||
+      !sessionAfterForbidden ||
+      !policyBeforeForbidden.data.equals(policyAfterForbidden.data) ||
+      !sessionBeforeForbidden.data.equals(sessionAfterForbidden.data)
+    )
+      throw new Error("forbidden action mutated private state");
     await send(
       agentEr,
       await program.methods
