@@ -1,6 +1,6 @@
 # BLACKOUT
 
-BLACKOUT is a four-player stealth arena designed for authoritative execution inside a MagicBlock Private Ephemeral Rollup. The repository is currently at the local preview stage.
+BLACKOUT is a four-player stealth arena designed for authoritative execution inside a MagicBlock Private Ephemeral Rollup. The client is still a local preview; the contracts now include the Phase 1 private-state probe and opt-in no-reader gate.
 
 ## Run the preview
 
@@ -15,7 +15,13 @@ The preview contains the arena shell, roster/visibility states, tick control, an
 ```sh
 cd client && npm run lint && npm run build
 cd ../server && npm test
-cd ../contracts && cargo check && yarn typecheck && yarn lint && anchor build --no-idl
+cd ../contracts
+cargo check
+yarn typecheck && yarn lint
+PATH="$HOME/.avm/bin:$PATH" yarn build
+yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/per-gate.ts
 ```
 
-`anchor build --no-idl` produces the deployable SBF artifact. Anchor 0.30.1 IDL generation currently needs a compatible nightly/proc-macro toolchain, so IDL generation remains a setup task. Gameplay advancement intentionally returns `PrivateStateNotReady` until the Phase 1 PER no-reader test passes; a public `World` account would invalidate the product’s privacy claim.
+The contracts pin Rust 1.89.0 and Anchor 1.0.2. The dry gate is skipped by default. After configuring a funded wallet and the required TEE endpoint, run `PATH="$HOME/.avm/bin:$PATH" yarn test:per` to execute the real devnet gate. It checks authorized TEE reads, base-layer raw reads, unauthenticated TEE reads, and wrong-wallet TEE reads, then scrubs and undelegates the probe.
+
+Gameplay advancement intentionally returns `PrivateStateNotReady` until this gate passes; a public `World` account would invalidate the product’s privacy claim.
