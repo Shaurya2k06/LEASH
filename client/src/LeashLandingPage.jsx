@@ -14,8 +14,6 @@ import LeashFaq from './components/LeashFaq'
 import LeashFooter from './components/LeashFooter'
 
 export default function LeashLandingPage({
-  theme,
-  onToggleTheme,
   onOpenCockpit,
   runtime,
   onRefresh,
@@ -37,17 +35,11 @@ export default function LeashLandingPage({
     return () => window.removeEventListener('load', refresh)
   }, [])
 
-  useEffect(() => {
-    AOS.refresh()
-  }, [theme])
-
   return (
     <div className="leash-page">
       <div className="leash-shell">
         {/* Navigation */}
         <LeashNav
-          theme={theme}
-          onToggleTheme={onToggleTheme}
           onOpenCockpit={onOpenCockpit}
         />
 

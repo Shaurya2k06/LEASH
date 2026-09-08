@@ -23,7 +23,6 @@ async function rpc(method, params = []) {
 
 export default function App() {
   const [viewMode, setViewMode] = useState('landing') // 'landing' | 'cockpit'
-  const [theme, setTheme] = useState('light')
   const [runtime, setRuntime] = useState({
     state: 'CHECKING',
     slot: '—',
@@ -33,15 +32,6 @@ export default function App() {
   })
   const [evidence, setEvidence] = useState(null)
   const [evidenceError, setEvidenceError] = useState('')
-
-  // Synchronize HTML theme attribute
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
-
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
-  }
 
   const refresh = useCallback(async () => {
     setRuntime((current) => ({ ...current, state: 'CHECKING', error: '' }))
@@ -124,8 +114,6 @@ export default function App() {
 
   return (
     <LeashLandingPage
-      theme={theme}
-      onToggleTheme={toggleTheme}
       onOpenCockpit={() => {
         setViewMode('cockpit')
         window.scrollTo({ top: 0, behavior: 'smooth' })

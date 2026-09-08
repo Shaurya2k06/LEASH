@@ -1,6 +1,6 @@
 import { scrollToTarget } from '../lib/lenis'
 
-export default function LeashNav({ theme, onToggleTheme, onOpenCockpit }) {
+export default function LeashNav({ onOpenCockpit }) {
   const scrollTo = (id) => scrollToTarget(`#${id}`, -80)
 
   return (
@@ -76,16 +76,6 @@ export default function LeashNav({ theme, onToggleTheme, onOpenCockpit }) {
       </nav>
 
       <div className="leash-header-actions">
-        <button
-          type="button"
-          className="theme-switch-btn"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          onClick={onToggleTheme}
-        >
-          <span className="theme-dot" />
-          <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
-        </button>
-
         <button
           type="button"
           className="leash-btn-primary"

@@ -26,72 +26,58 @@ html.lenis, html.lenis body {
 }
 
 :root {
-  /* Colors — Calm Monotone Light Mode */
-  --bg-canvas: #f4f1eb;
-  --bg-card: #eae6df;
-  --bg-card-hover: #ffffff;
-  --bg-card-subtle: #f8f6f2;
-  --bg-dark: #181716;
-  --bg-dark-card: #232220;
+  /* Dashboard theme: dark surfaces, telemetry accents, compact geometry. */
+  --bg-canvas: #070a0d;
+  --bg-card: #0d151a;
+  --bg-card-hover: #10242b;
+  --bg-card-subtle: #0b1216;
+  --bg-dark: #05080a;
+  --bg-dark-card: #0d151a;
 
-  --ink-primary: #181716;
-  --ink-secondary: #524e49;
-  --ink-muted: #7c7770;
-  --ink-contrast: #f4f1eb;
+  --ink-primary: #e7edf4;
+  --ink-secondary: #b4c0c6;
+  --ink-muted: #70818a;
+  --ink-contrast: #e7edf4;
 
-  /* Subtle Monotone Accents (Restrained, never neon) */
-  --accent-muted: #6b6660;
-  --accent-soft: rgba(24, 23, 22, 0.06);
-  --accent-highlight: #e4dfd6;
-  --accent-dark-highlight: #2c2b29;
+  --accent-muted: #70818a;
+  --accent-soft: rgba(115, 232, 239, 0.08);
+  --accent-highlight: #0d1a20;
+  --accent-dark-highlight: #10242b;
+  --accent-cyan: #73e8ef;
+  --accent-green: #83e5a4;
+  --accent-amber: #e6bc77;
+  --accent-red: #dc8d9a;
+  --accent-moss: #83e5a4;
 
-  --border-hairline: rgba(24, 23, 22, 0.12);
-  --border-strong: rgba(24, 23, 22, 0.28);
-  --border-contrast: rgba(244, 241, 235, 0.15);
+  --border-hairline: #203039;
+  --border-strong: #31505a;
+  --border-contrast: #31505a;
 
-  /* Typography */
-  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
-  --font-italic: "Newsreader", Georgia, serif;
-  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-italic: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "DM Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Sizing & Radius */
-  --max-width: 1320px;
+  --max-width: 1160px;
   --radius-xs: 3px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-pill: 9999px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
+  --radius-pill: 3px;
 
-  /* Shadows — Subdued, subtle */
-  --shadow-subtle: 0 1px 4px rgba(0, 0, 0, 0.04);
-  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08);
+  --shadow-subtle: none;
+  --shadow-hover: 0 0 14px rgba(115, 232, 239, 0.08);
 }
 
-html[data-theme="dark"] {
-  --bg-canvas: #161514;
-  --bg-card: #201f1d;
-  --bg-card-hover: #272624;
-  --bg-card-subtle: #1c1b1a;
-  --bg-dark: #0f0e0d;
-  --bg-dark-card: #181716;
+html, body {
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+}
 
-  --ink-primary: #eeeae4;
-  --ink-secondary: #a49f97;
-  --ink-muted: #736e67;
-  --ink-contrast: #161514;
-
-  --accent-muted: #9e9992;
-  --accent-soft: rgba(238, 234, 228, 0.06);
-  --accent-highlight: #282725;
-  --accent-dark-highlight: #1b1a19;
-
-  --border-hairline: rgba(238, 234, 228, 0.1);
-  --border-strong: rgba(238, 234, 228, 0.22);
-  --border-contrast: rgba(24, 23, 22, 0.3);
-
-  --shadow-subtle: 0 1px 4px rgba(0, 0, 0, 0.3);
-  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.5);
+h1, h2, h3, h4, h5, h6 {
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-weight: 500;
 }
 
 *, *::before, *::after {
