@@ -764,21 +764,22 @@ pub struct UndelegateReceipt<'info> {
 #[derive(Accounts)]
 pub struct SettleAction<'info> {
     #[account(mut, seeds = [RECEIPT_SEED, receipt.session.as_ref()], bump = receipt.bump)]
-    pub receipt: Account<'info, SettlementReceipt>,
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
     #[account(mut, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump)]
-    pub terminal: Account<'info, TerminalMarker>,
+    pub terminal: Box<Account<'info, TerminalMarker>>,
     #[account(mut, address = receipt.source_vault, token::mint = mint, token::authority = escrow)]
-    pub source_vault: Account<'info, TokenAccount>,
+    pub source_vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, address = receipt.recipient_token, token::mint = mint, constraint = recipient_token.owner == receipt.recipient @ ErrorCode::InvalidSettlement)]
-    pub recipient_token: Account<'info, TokenAccount>,
+    pub recipient_token: Box<Account<'info, TokenAccount>>,
     #[account(address = receipt.mint)]
-    pub mint: Account<'info, anchor_spl::token::Mint>,
+    pub mint: Box<Account<'info, anchor_spl::token::Mint>>,
     pub token_program: Program<'info, Token>,
     /// CHECK: MagicBlock binds this account to the action's escrow PDA.
     #[account(address = receipt.controller)]
     pub escrow_auth: UncheckedAccount<'info>,
+    /// CHECK: MagicBlock injects the escrow PDA and signs for it in the action CPI.
     #[account(address = ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer(&escrow_auth.key(), ACTION_ESCROW_INDEX))]
-    pub escrow: Signer<'info>,
+    pub escrow: UncheckedAccount<'info>,
 }
 
 #[account]
