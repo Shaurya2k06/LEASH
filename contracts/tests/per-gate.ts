@@ -72,12 +72,18 @@ const gate = process.env.BLACKOUT_PER_TEST === "1" ? describe : describe.skip;
 gate("BLACKOUT Phase 1 private-state gate", () => {
   it("blocks raw reads while allowing the authorized TEE reader", async () => {
     const baseEndpoint =
-      process.env.PROVIDER_ENDPOINT || "https://api.devnet.solana.com";
+      process.env.SOLANA_RPC_URL ||
+      process.env.PROVIDER_ENDPOINT ||
+      "https://api.devnet.solana.com";
     const teeEndpoint = (
-      process.env.TEE_PROVIDER_ENDPOINT || "https://devnet-tee.magicblock.app"
+      process.env.MB_TEE_RPC_URL ||
+      process.env.TEE_PROVIDER_ENDPOINT ||
+      "https://devnet-tee.magicblock.app"
     ).replace(/\/$/, "");
     const teeWsEndpoint =
-      process.env.TEE_WS_ENDPOINT || "wss://devnet-tee.magicblock.app";
+      process.env.MB_TEE_WS_URL ||
+      process.env.TEE_WS_ENDPOINT ||
+      "wss://devnet-tee.magicblock.app";
     const wallet = anchor.Wallet.local();
     const base = new anchor.AnchorProvider(
       new web3.Connection(baseEndpoint, { commitment: "confirmed" }),
