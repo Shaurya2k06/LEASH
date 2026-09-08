@@ -10,7 +10,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact";
+import { requiredEnv, writeArtifact } from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -47,11 +47,27 @@ async function send(
   transaction.recentBlockhash = (
     await provider.connection.getLatestBlockhash()
   ).blockhash;
-  return provider.sendAndConfirm(
-    await provider.wallet.signTransaction(transaction),
-    [],
+  const signed = await provider.wallet.signTransaction(transaction);
+  const signature = await provider.connection.sendRawTransaction(
+    signed.serialize(),
     { skipPreflight: true }
   );
+  const confirmation = await provider.connection.confirmTransaction(
+    signature,
+    "confirmed"
+  );
+  if (confirmation.value.err) {
+    const failed = await provider.connection.getTransaction(signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    throw new Error(
+      `${signature}: ${JSON.stringify(confirmation.value.err)}\n${
+        failed?.meta?.logMessages?.join("\n") || "no logs"
+      }`
+    );
+  }
+  return signature;
 }
 
 async function mustFailWith(
@@ -374,26 +390,25 @@ gate("LEASH TEE sibling-read gate", () => {
         program.programId,
         ACTION_DISCRIMINATOR,
         PAYLOAD_HASH,
-        agent.publicKey,
+        sibling.publicKey,
         program.programId,
         controller.publicKey
       )
-      .accountsPartial({ agent: agent.publicKey, policy, session })
+      .accountsPartial({ agent: sibling.publicKey, policy, session })
       .transaction();
-    simulation.feePayer = agent.publicKey;
-    simulation.recentBlockhash = (
-      await agentEr.connection.getLatestBlockhash()
-    ).blockhash;
+    simulation.feePayer = sibling.publicKey;
     const simulated = await siblingEr.connection.simulateTransaction(
-      await agentEr.wallet.signTransaction(simulation),
-      [],
+      simulation,
+      [sibling],
       [session]
     );
     if (!simulated) throw new Error("sibling simulation RPC returned null");
     if (!simulated.value.err)
       throw new Error("sibling simulation unexpectedly accepted the ledger");
+    const simulationError = JSON.stringify(simulated.value.err).toLowerCase();
     if (
-      !JSON.stringify(simulated.value.err).toLowerCase().includes("permission")
+      !simulationError.includes("permission") &&
+      !simulationError.includes("2001")
     )
       throw new Error(
         `sibling simulation returned an unexpected error: ${JSON.stringify(

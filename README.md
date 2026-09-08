@@ -57,10 +57,11 @@ yarn test:leash:race
 BENCHMARK_SAMPLES=100 yarn bench:leash
 ```
 
-The contracts pin Rust 1.89.0, Solana CLI 3.1.9, and Anchor 1.0.2. Historical
-sibling-read, settlement, expiry, and twenty-session race runs passed against a
-previous devnet binary; redeploy the current source before treating new gate
-artifacts as live evidence.
+The contracts pin Rust 1.89.0, Solana CLI 3.1.9, and Anchor 1.0.2. The current
+devnet binary has passed the sibling-read, settlement, expiry, and twenty-session
+race gates. The public client reads the sanitized summary at
+`client/public/evidence.json`; it does not claim to execute those TEE gates in
+the browser.
 The relay only forwards allowlisted read-only JSON-RPC payloads, rate-limits
 callers, bounds request and response sizes, checks upstream health, and cannot
 sign or choose an outcome. Set `UPSTREAM_RESPONSE_BYTES` as well when deploying

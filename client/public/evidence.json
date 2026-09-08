@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "network": "solana-devnet",
+  "verifiedAt": "2026-09-08T19:53:44.117Z",
+  "program": {
+    "id": "3hYb364V9zcgzW5rVN2Q3khuLUE39XPN1nBJgLkWiTUe",
+    "binarySha256": "2925d4fe8d94353489a9f6c3059c5e93b2bc008f03bbae0b6b28214e70ceb0b9",
+    "deployedInSlot": 495263536
+  },
+  "gates": {
+    "privacy": {
+      "status": "passed",
+      "ownLedgerVisible": true,
+      "baseLedgerSecretBytes": false,
+      "siblingDirectVisible": false,
+      "siblingBatchVisible": false,
+      "siblingSubscriptionLeaked": false,
+      "siblingTransactionSecretBytes": false,
+      "siblingSimulationSecretBytes": false
+    },
+    "settlement": {
+      "status": "passed",
+      "failedActionPreservedReservation": true,
+      "retryPaidOnce": true,
+      "replayRejected": true,
+      "publicReceiptHasAmount": false,
+      "publicReceiptHasDigest": false
+    },
+    "expiry": {
+      "status": "passed",
+      "expiredTerminalPublished": true,
+      "settlementAfterExpiryRejected": true,
+      "expiryReplayRejected": true,
+      "publicReceiptHasAmount": false,
+      "publicReceiptHasDigest": false
+    },
+    "race": {
+      "status": "passed",
+      "contenders": 20,
+      "successfulReservations": 1,
+      "losingReservations": 19,
+      "exactBudgetPreserved": true
+    }
+  },
+  "benchmark": {
+    "sampleTarget": 100,
+    "base": {
+      "transportFailures": 0,
+      "applicationFailures": 0,
+      "transportP95Ms": 94.03,
+      "applicationP95Ms": 93.43
+    },
+    "tee": {
+      "transportFailures": 0,
+      "applicationFailures": 0,
+      "transportP95Ms": 79.04,
+      "applicationP95Ms": 522.94
+    },
+    "actionLatencyMeasured": false
+  },
+  "sources": [
+    "contracts/artifacts/leash-per-gate.json",
+    "contracts/artifacts/leash-settlement-gate.json",
+    "contracts/artifacts/leash-expiry-gate.json",
+    "contracts/artifacts/leash-race-gate.json",
+    "contracts/artifacts/leash-benchmark.json"
+  ]
+}

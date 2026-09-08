@@ -12,7 +12,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact";
+import { requiredEnv, writeArtifact } from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -406,6 +406,18 @@ gate("LEASH expiry terminal gate", () => {
       "signature",
       "expired terminal marker was replayable"
     );
+
+    await program.methods
+      .resetTerminal()
+      .accountsPartial({ receipt, terminal, controller: controller.publicKey })
+      .signers([controller])
+      .rpc();
+    const reopenedMarker = await program.account.terminalMarker.fetch(terminal);
+    if (
+      reopenedMarker.kind.open === undefined ||
+      reopenedMarker.history.length !== 1
+    )
+      throw new Error("terminal reset did not preserve its bounded history");
 
     await send(
       controllerEr,

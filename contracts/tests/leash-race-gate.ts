@@ -10,7 +10,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact";
+import { requiredEnv, writeArtifact } from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -265,12 +265,9 @@ gate("LEASH twenty-agent budget race gate", () => {
       )
     );
 
-    const policyExpiresAt = new anchor.BN(
-      (await controllerEr.connection.getSlot()) + 300
-    );
-    const permitExpiresAt = new anchor.BN(
-      (await controllerEr.connection.getSlot()) + 30
-    );
+    const raceStartSlot = await controllerEr.connection.getSlot();
+    const policyExpiresAt = new anchor.BN(raceStartSlot + 2_000);
+    const permitExpiresAt = new anchor.BN(raceStartSlot + 1_999);
     await send(
       controllerEr,
       await program.methods

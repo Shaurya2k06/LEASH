@@ -1,13 +1,13 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+const { mkdirSync, writeFileSync } = require("node:fs");
+const { resolve } = require("node:path");
 
-export function requiredEnv(name: string): string {
+function requiredEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
 
-export function writeArtifact(name: string, value: Record<string, unknown>) {
+function writeArtifact(name, value) {
   const directory = resolve(process.env.LEASH_ARTIFACT_DIR || "artifacts");
   mkdirSync(directory, { recursive: true });
   writeFileSync(
@@ -19,3 +19,6 @@ export function writeArtifact(name: string, value: Record<string, unknown>) {
     ) + "\n"
   );
 }
+
+exports.requiredEnv = requiredEnv;
+exports.writeArtifact = writeArtifact;

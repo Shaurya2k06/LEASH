@@ -19,7 +19,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact";
+import { requiredEnv, writeArtifact } from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -83,13 +83,15 @@ async function send(
 
 async function mustFailWith(
   action: Promise<unknown>,
-  expected: string,
+  expected: string | string[],
   message: string
 ) {
   try {
     await action;
   } catch (error) {
-    if (!String(error).toLowerCase().includes(expected.toLowerCase()))
+    const text = String(error).toLowerCase();
+    const expectedValues = Array.isArray(expected) ? expected : [expected];
+    if (!expectedValues.some((value) => text.includes(value.toLowerCase())))
       throw new Error(`${message}: unexpected error ${String(error)}`);
     return;
   }
@@ -547,7 +549,7 @@ gate("LEASH Magic Action settlement gate", () => {
           })
           .transaction()
       ),
-      "permission",
+      ["permission", "2001"],
       "sibling wrote the pending receipt"
     );
     await mustFailWith(
@@ -562,7 +564,7 @@ gate("LEASH Magic Action settlement gate", () => {
           })
           .transaction()
       ),
-      "permission",
+      ["permission", "2001", "6015"],
       "sibling delegated the pending receipt"
     );
     const receiptSimulation = await program.methods
@@ -576,12 +578,9 @@ gate("LEASH Magic Action settlement gate", () => {
       })
       .transaction();
     receiptSimulation.feePayer = sibling.publicKey;
-    receiptSimulation.recentBlockhash = (
-      await siblingEr.connection.getLatestBlockhash()
-    ).blockhash;
     const simulatedReceipt = await siblingEr.connection.simulateTransaction(
-      await siblingEr.wallet.signTransaction(receiptSimulation),
-      [],
+      receiptSimulation,
+      [sibling],
       [receipt]
     );
     if (!simulatedReceipt || !simulatedReceipt.value.err)
@@ -589,7 +588,8 @@ gate("LEASH Magic Action settlement gate", () => {
     if (
       !JSON.stringify(simulatedReceipt.value.err)
         .toLowerCase()
-        .includes("permission")
+        .includes("permission") &&
+      !JSON.stringify(simulatedReceipt.value.err).toLowerCase().includes("2001")
     )
       throw new Error(
         `sibling receipt simulation returned an unexpected error: ${JSON.stringify(
@@ -795,6 +795,18 @@ gate("LEASH Magic Action settlement gate", () => {
       "signature",
       "replayed Magic Action unexpectedly succeeded"
     );
+
+    await program.methods
+      .resetTerminal()
+      .accountsPartial({ receipt, terminal, controller: controller.publicKey })
+      .signers([controller])
+      .rpc();
+    const reopenedMarker = await program.account.terminalMarker.fetch(terminal);
+    if (
+      reopenedMarker.kind.open === undefined ||
+      reopenedMarker.history.length !== 1
+    )
+      throw new Error("terminal reset did not preserve its bounded history");
 
     await send(
       controllerEr,

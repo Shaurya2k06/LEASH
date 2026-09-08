@@ -61,7 +61,7 @@ pub mod contracts {
             &ctx.accounts.system_program,
             &ctx.accounts.controller,
             &policy.to_account_info(),
-            1,
+            MAX_POLICY_AGENTS + 1,
         )
     }
 
@@ -284,12 +284,6 @@ pub mod contracts {
             );
             keys.push(agent);
         }
-        fund(
-            &ctx.accounts.system_program,
-            &ctx.accounts.controller,
-            &policy.to_account_info(),
-            keys.len(),
-        )?;
         CreateEphemeralPermissionCpi {
             payer: policy.to_account_info(),
             permissioned_account: policy.to_account_info(),
@@ -442,10 +436,10 @@ pub mod contracts {
             ctx.accounts.policy.allowed_source_vault,
             ErrorCode::InvalidAction
         );
-        ctx.accounts.terminal.kind = TerminalKind::Open;
-        ctx.accounts.terminal.nonce = 0;
-        ctx.accounts.terminal.amount = 0;
-        ctx.accounts.terminal.digest = [0; 32];
+        require!(
+            ctx.accounts.terminal.kind == TerminalKind::Open,
+            ErrorCode::AlreadySettled
+        );
         let receipt = &mut ctx.accounts.receipt;
         receipt.nonce = nonce;
         receipt.status = ReceiptStatus::Pending;
@@ -513,6 +507,17 @@ pub mod contracts {
         Ok(())
     }
 
+    pub fn reset_terminal(ctx: Context<ResetTerminal>) -> Result<()> {
+        require!(
+            matches!(
+                ctx.accounts.receipt.status,
+                ReceiptStatus::Settled | ReceiptStatus::Expired
+            ),
+            ErrorCode::InvalidSettlement
+        );
+        reopen_terminal(&mut ctx.accounts.terminal)
+    }
+
     pub fn expire_permit(ctx: Context<ExpirePermit>) -> Result<()> {
         let session = &mut ctx.accounts.session;
         require!(
@@ -529,6 +534,10 @@ pub mod contracts {
                 ReceiptStatus::Empty | ReceiptStatus::Settled | ReceiptStatus::Expired
             ) || (ctx.accounts.receipt.status == ReceiptStatus::Pending
                 && ctx.accounts.terminal.kind == TerminalKind::Open),
+            ErrorCode::AlreadySettled
+        );
+        require!(
+            ctx.accounts.terminal.kind == TerminalKind::Open,
             ErrorCode::AlreadySettled
         );
         let amount = session.reserved_amount;
@@ -551,10 +560,6 @@ pub mod contracts {
             .ok_or(ErrorCode::ArithmeticOverflow)?;
         session.pending_digest = digest;
         session.pending_amount = amount;
-        ctx.accounts.terminal.kind = TerminalKind::Open;
-        ctx.accounts.terminal.nonce = 0;
-        ctx.accounts.terminal.amount = 0;
-        ctx.accounts.terminal.digest = [0; 32];
         let receipt = &mut ctx.accounts.receipt;
         receipt.nonce = nonce;
         receipt.status = ReceiptStatus::Expired;
@@ -1081,6 +1086,18 @@ fn consume(session: &mut SessionLedger, nonce: u64) -> Result<()> {
     Ok(())
 }
 
+fn reopen_terminal(terminal: &mut TerminalMarker) -> Result<()> {
+    require!(
+        terminal.kind != TerminalKind::Open,
+        ErrorCode::InvalidSettlement
+    );
+    terminal.nonce = 0;
+    terminal.amount = 0;
+    terminal.digest = [0; 32];
+    terminal.kind = TerminalKind::Open;
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(policy_id: u64)]
 pub struct CreatePolicy<'info> {
@@ -1190,7 +1207,7 @@ pub struct SettlePermit<'info> {
     pub session: Account<'info, SessionLedger>,
     #[account(mut, has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Box<Account<'info, SettlementReceipt>>,
-    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
     pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
 }
@@ -1203,7 +1220,7 @@ pub struct ExpirePermit<'info> {
     pub session: Account<'info, SessionLedger>,
     #[account(mut, has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, SettlementReceipt>,
-    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
 }
@@ -1216,7 +1233,7 @@ pub struct CommitSettlement<'info> {
     pub session: Box<Account<'info, SessionLedger>>,
     #[account(mut, has_one = policy, has_one = session, has_one = controller)]
     pub receipt: Box<Account<'info, SettlementReceipt>>,
-    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
     pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
     /// CHECK: canonical receipt permission PDA.
@@ -1244,7 +1261,7 @@ pub struct CommitExpiry<'info> {
     pub session: Box<Account<'info, SessionLedger>>,
     #[account(mut, has_one = policy, has_one = session, has_one = controller)]
     pub receipt: Box<Account<'info, SettlementReceipt>>,
-    #[account(mut, has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
+    #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, receipt.session.as_ref()], bump = terminal.bump)]
     pub terminal: Box<Account<'info, TerminalMarker>>,
     pub controller: Signer<'info>,
     /// CHECK: canonical receipt permission PDA.
@@ -1331,6 +1348,21 @@ pub struct FinalizePermit<'info> {
     #[account(has_one = policy, has_one = session, has_one = controller, seeds = [RECEIPT_SEED, session.key().as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, SettlementReceipt>,
     #[account(has_one = policy, has_one = session, seeds = [TERMINAL_SEED, session.key().as_ref()], bump = terminal.bump)]
+    pub terminal: Account<'info, TerminalMarker>,
+    pub controller: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ResetTerminal<'info> {
+    #[account(has_one = controller)]
+    pub receipt: Account<'info, SettlementReceipt>,
+    #[account(
+        mut,
+        seeds = [TERMINAL_SEED, receipt.session.as_ref()],
+        bump = terminal.bump,
+        constraint = terminal.policy == receipt.policy @ ErrorCode::InvalidSettlement,
+        constraint = terminal.session == receipt.session @ ErrorCode::InvalidSettlement
+    )]
     pub terminal: Account<'info, TerminalMarker>,
     pub controller: Signer<'info>,
 }
@@ -1785,5 +1817,32 @@ mod tests {
             500
         );
         assert_eq!(terminal.history.len(), 100);
+    }
+
+    #[test]
+    fn reopening_terminal_clears_current_marker_and_preserves_history() {
+        let mut terminal = TerminalMarker {
+            policy: Pubkey::default(),
+            session: Pubkey::default(),
+            nonce: 7,
+            amount: 5,
+            digest: [9; 32],
+            kind: TerminalKind::Spent,
+            history: vec![TerminalRecord {
+                nonce: 7,
+                amount: 5,
+                digest: [9; 32],
+                kind: TerminalKind::Spent,
+            }],
+            bump: 0,
+        };
+
+        reopen_terminal(&mut terminal).unwrap();
+
+        assert!(matches!(terminal.kind, TerminalKind::Open));
+        assert_eq!(terminal.nonce, 0);
+        assert_eq!(terminal.amount, 0);
+        assert_eq!(terminal.digest, [0; 32]);
+        assert_eq!(terminal.history.len(), 1);
     }
 }

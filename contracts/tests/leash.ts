@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { requiredEnv } from "./artifact";
+import { requiredEnv } from "./artifact.js";
 
 const PROGRAM_ID = new PublicKey(requiredEnv("LEASH_PROGRAM_ID"));
 

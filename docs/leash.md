@@ -62,7 +62,10 @@ SOLANA_RPC_URL=https://rpc.magicblock.app/devnet BENCHMARK_SAMPLES=100 yarn benc
 These live gates cover sibling-read denial, authenticated SPL payment,
 underfunded-action rollback and retry, replay rejection, and expiry/payment
 mutual exclusion, plus twenty private-session contention for one remaining
-budget. The operator client polls only public health; the relay transports
+budget. The current deployment is binary
+`2925d4fe8d94353489a9f6c3059c5e93b2bc008f03bbae0b6b28214e70ceb0b9` in slot
+`495263536`; all four gates passed against it. The operator client polls only
+public health and a sanitized evidence manifest; the relay transports
 read-only RPC payloads and has no outcome authority. Gate and benchmark runs
 write machine-readable JSON under `contracts/artifacts/`. The benchmark also
 samples public program-account application health and explicitly does not
