@@ -312,7 +312,7 @@ pub mod contracts {
             ctx.accounts.magic_program.to_account_info(),
         )
         .commit_and_undelegate(&[receipt.to_account_info()])
-        .add_post_commit_actions([action])
+        .add_post_undelegate_actions([action])
         .build_and_invoke()?;
         Ok(())
     }
