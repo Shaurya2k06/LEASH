@@ -253,18 +253,23 @@ function writeDemo(value: Record<string, unknown>) {
 async function main() {
   const startedAt = new Date().toISOString();
   const steps: DemoStep[] = [];
+  emitDemoEvent("startup", { stage: "environment" });
   const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
   const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
   const teeValidator = new web3.PublicKey(requiredEnv("MB_TEE_VALIDATOR"));
+  emitDemoEvent("startup", { stage: "wallet" });
   const controller = controllerKeypair();
   const agent = web3.Keypair.generate();
   const sibling = web3.Keypair.generate();
+  emitDemoEvent("startup", { stage: "provider" });
   const base = new anchor.AnchorProvider(
     new web3.Connection(baseEndpoint, { commitment: "confirmed" }),
     new anchor.Wallet(controller)
   );
   anchor.setProvider(base);
+  emitDemoEvent("startup", { stage: "idl" });
   const program = anchor.workspace.Contracts as Program<Contracts>;
+  emitDemoEvent("startup", { stage: "program" });
   const configuredProgram = new web3.PublicKey(requiredEnv("LEASH_PROGRAM_ID"));
   if (!program.programId.equals(configuredProgram))
     throw new Error("LEASH_PROGRAM_ID does not match the checked-in IDL");

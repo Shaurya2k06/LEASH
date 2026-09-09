@@ -301,6 +301,8 @@ function createDemoServer(options = {}) {
         if (event.type === "started") {
           const { type: _type, ...metadata } = event;
           demoState = { ...demoState, ...metadata };
+        } else if (event.type === "startup") {
+          demoState = { ...demoState, startupStage: event.stage };
         } else if (event.type === "step") {
           demoState = {
             ...demoState,
@@ -312,7 +314,7 @@ function createDemoServer(options = {}) {
     })
       .then((artifact) => {
         if (demoState.runId === runId) {
-          demoState = { ...artifact, runId };
+          demoState = { ...demoState, ...artifact, runId };
           if (artifact.status === "failed") lastStartedAt = 0;
         }
       })

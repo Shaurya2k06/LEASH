@@ -101,6 +101,7 @@ test("starts a live run and publishes confirmed steps", async (t) => {
     configured: true,
     cooldownMs: 0,
     runDemo: async ({ onEvent }) => {
+      onEvent({ type: "startup", stage: "provider" });
       onEvent({ type: "started", network: "solana-devnet" });
       await new Promise((resolve) => setImmediate(resolve));
       onEvent({ type: "step", step });
@@ -121,6 +122,7 @@ test("starts a live run and publishes confirmed steps", async (t) => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(state.status, "passed");
+  assert.equal(state.startupStage, "provider");
   assert.deepEqual(state.steps, [step]);
 });
 
