@@ -220,6 +220,7 @@ function createDemoServer(options = {}) {
           gateStates = { ...gateStates, [gate]: artifact };
         })
         .catch((error) => {
+          lastStartedAt = 0;
           console.error(`${gate} gate failed`, error);
           gateStates = {
             ...gateStates,
@@ -292,9 +293,13 @@ function createDemoServer(options = {}) {
       },
     })
       .then((artifact) => {
-        if (demoState.runId === runId) demoState = { ...artifact, runId };
+        if (demoState.runId === runId) {
+          demoState = { ...artifact, runId };
+          if (artifact.status === "failed") lastStartedAt = 0;
+        }
       })
       .catch(() => {
+        lastStartedAt = 0;
         if (demoState.runId === runId) {
           demoState = {
             ...demoState,

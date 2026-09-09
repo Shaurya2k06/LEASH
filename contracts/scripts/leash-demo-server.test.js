@@ -93,3 +93,17 @@ test("starts a live run and publishes confirmed steps", async (t) => {
   assert.equal(state.status, "passed");
   assert.deepEqual(state.steps, [step]);
 });
+
+test("allows an immediate retry after a failed demo", async (t) => {
+  const server = createDemoServer({
+    configured: true,
+    cooldownMs: 60_000,
+    runDemo: async () => ({ status: "failed", steps: [] }),
+  });
+  const url = await listen(server);
+  t.after(() => close(server));
+
+  assert.equal((await fetch(`${url}/demo`, { method: "POST" })).status, 202);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await fetch(`${url}/demo`, { method: "POST" })).status, 202);
+});

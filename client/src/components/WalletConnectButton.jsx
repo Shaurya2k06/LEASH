@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 
 const getPhantom = () => {
   if (typeof window === 'undefined') return null
-  return window.phantom?.solana || window.solana || null
+  const provider = window.phantom?.solana || window.solana
+  return provider?.isPhantom === true ? provider : null
 }
 
 const shorten = (address) => `${address.slice(0, 4)}…${address.slice(-4)}`
