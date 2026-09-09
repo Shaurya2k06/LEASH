@@ -1,7 +1,7 @@
 import PermitPlayground from './PermitPlayground'
 import { scrollToTarget } from '../lib/lenis'
 
-export default function LeashHero({ runtime, programId, evidence, onOpenCockpit }) {
+export default function LeashHero({ runtime, programId, evidence, onOpenCockpit, onOpenDemo }) {
   return (
     <section className="leash-hero" id="hero">
       <h1 className="hero-display-title" data-aos="fade-up">
@@ -33,7 +33,7 @@ export default function LeashHero({ runtime, programId, evidence, onOpenCockpit 
         <button
           type="button"
           className="leash-btn-secondary"
-          onClick={() => scrollToTarget('#live-demo')}
+          onClick={onOpenDemo}
         >
           Watch Live Devnet Demo
         </button>

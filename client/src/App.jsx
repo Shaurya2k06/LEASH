@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './leash.css'
 import LeashLandingPage from './LeashLandingPage'
 import OperatorCockpit from './components/OperatorCockpit'
+import { scrollToTarget } from './lib/lenis'
 
 const programId = import.meta.env.VITE_PROGRAM_ID || ''
 const rpcUrl = import.meta.env.VITE_SOLANA_RPC_URL || ''
@@ -21,8 +22,12 @@ async function rpc(method, params = []) {
   return body.result
 }
 
+function routeFor(pathname) {
+  return pathname === '/dashboard' || pathname.startsWith('/dashboard/') || pathname === '/demo' ? 'dashboard' : 'landing'
+}
+
 export default function App() {
-  const [viewMode, setViewMode] = useState('landing') // 'landing' | 'cockpit'
+  const [route, setRoute] = useState(() => routeFor(window.location.pathname))
   const [runtime, setRuntime] = useState({
     state: 'CHECKING',
     slot: '—',
@@ -34,6 +39,27 @@ export default function App() {
   const [evidenceError, setEvidenceError] = useState('')
   const [demo, setDemo] = useState(null)
   const [demoError, setDemoError] = useState('')
+
+  const navigate = useCallback((target) => {
+    const [pathname, hash] = target.split('#')
+    window.history.pushState({}, '', target)
+    setRoute(routeFor(pathname))
+    window.scrollTo({ top: 0, behavior: 'auto' })
+    if (hash) requestAnimationFrame(() => scrollToTarget(`#${hash}`, -80))
+  }, [])
+
+  useEffect(() => {
+    const onPopState = () => setRoute(routeFor(window.location.pathname))
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    if (window.location.pathname === '/demo') {
+      window.history.replaceState({}, '', '/dashboard#live-demo')
+    }
+    if (window.location.hash) requestAnimationFrame(() => scrollToTarget(window.location.hash, -80))
+  }, [])
 
   const refresh = useCallback(async () => {
     setRuntime((current) => ({ ...current, state: 'CHECKING', error: '' }))
@@ -115,7 +141,7 @@ export default function App() {
     refresh()
   }, [refresh])
 
-  if (viewMode === 'cockpit') {
+  if (route === 'dashboard') {
     return (
       <OperatorCockpit
         runtime={runtime}
@@ -126,27 +152,21 @@ export default function App() {
         demo={demo}
         demoError={demoError}
         onRefresh={refresh}
-        onBackToLanding={() => {
-          setViewMode('landing')
-          window.scrollTo({ top: 0, behavior: 'smooth' })
-        }}
+        onBackToLanding={() => navigate('/')}
+        onOpenDemo={() => navigate('/dashboard#live-demo')}
       />
     )
   }
 
   return (
     <LeashLandingPage
-      onOpenCockpit={() => {
-        setViewMode('cockpit')
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-      }}
+      onOpenCockpit={() => navigate('/dashboard')}
+      onOpenDemo={() => navigate('/dashboard#live-demo')}
       runtime={runtime}
       onRefresh={refresh}
       programId={programId}
       evidence={evidence}
       evidenceError={evidenceError}
-      demo={demo}
-      demoError={demoError}
     />
   )
 }

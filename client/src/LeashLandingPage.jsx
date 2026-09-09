@@ -8,7 +8,6 @@ import ThreatModelSection from './components/ThreatModelSection'
 import LifecycleTimeline from './components/LifecycleTimeline'
 import ArchitectureMatrix from './components/ArchitectureMatrix'
 import AdversarialGates from './components/AdversarialGates'
-import DemoProofTape from './components/DemoProofTape'
 import TrustLedgerTable from './components/TrustLedgerTable'
 import LeashDarkCta from './components/LeashDarkCta'
 import LeashFaq from './components/LeashFaq'
@@ -16,13 +15,12 @@ import LeashFooter from './components/LeashFooter'
 
 export default function LeashLandingPage({
   onOpenCockpit,
+  onOpenDemo,
   runtime,
   onRefresh,
   programId,
   evidence,
   evidenceError,
-  demo,
-  demoError,
 }) {
   useEffect(() => {
     AOS.init({
@@ -44,6 +42,7 @@ export default function LeashLandingPage({
         {/* Navigation */}
         <LeashNav
           onOpenCockpit={onOpenCockpit}
+          onOpenDemo={onOpenDemo}
         />
 
         {/* Hero Section with Interactive Permit Playground */}
@@ -52,6 +51,7 @@ export default function LeashLandingPage({
           programId={programId}
           evidence={evidence}
           onOpenCockpit={onOpenCockpit}
+          onOpenDemo={onOpenDemo}
         />
 
         {/* Threat Matrix Section: Why Swarms Break Standard Wallets */}
@@ -59,8 +59,6 @@ export default function LeashLandingPage({
 
         {/* 5-Phase Cryptographic Lifecycle Interactive Machine */}
         <LifecycleTimeline evidence={evidence} />
-
-        <DemoProofTape demo={demo} demoError={demoError} />
 
         {/* Three-Tier System Topology Matrix */}
         <ArchitectureMatrix programId={programId} />

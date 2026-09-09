@@ -1,6 +1,6 @@
 import { scrollToTarget } from '../lib/lenis'
 
-export default function LeashNav({ onOpenCockpit }) {
+export default function LeashNav({ onOpenCockpit, onOpenDemo }) {
   const scrollTo = (id) => scrollToTarget(`#${id}`, -80)
 
   return (
@@ -22,7 +22,7 @@ export default function LeashNav({ onOpenCockpit }) {
             <button
               type="button"
               className="leash-nav-link"
-              onClick={() => scrollTo('live-demo')}
+              onClick={onOpenDemo}
             >
               Live Demo
             </button>

@@ -15,6 +15,12 @@ See [`docs/leash.md`](./docs/leash.md) for invariants and
 cd client && npm run dev
 ```
 
+The browser routes are:
+
+- `/` — public LEASH landing page
+- `/dashboard` — operator dashboard with the clickable lifecycle replay
+- `/demo` — redirects to `/dashboard#live-demo`
+
 The browser view only polls public program health and displays recorded gate
 outcomes. It does not fetch private policy/session accounts or sign outcomes.
 

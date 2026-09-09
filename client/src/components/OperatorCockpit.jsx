@@ -46,6 +46,7 @@ export default function OperatorCockpit({
   evidenceError,
   onRefresh,
   onBackToLanding,
+  onOpenDemo,
   demo,
   demoError,
 }) {
@@ -60,6 +61,7 @@ export default function OperatorCockpit({
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', padding: '24px 0', borderBottom: '1px solid var(--border-strong)', flexWrap: 'wrap' }}>
           <button type="button" className="leash-btn-secondary" onClick={onBackToLanding}>← Back to landing</button>
           <span className="logo-text">LEASH / OPERATOR COCKPIT</span>
+          <button type="button" className="leash-btn-primary" onClick={onOpenDemo}>Live lifecycle ↵</button>
           <button type="button" className="theme-switch-btn" onClick={onRefresh}>↻ Refresh public runtime</button>
         </header>
 
@@ -145,7 +147,7 @@ export default function OperatorCockpit({
           )}
         </section>
 
-        <DemoProofTape demo={demo} demoError={demoError} compact />
+        <DemoProofTape demo={demo} demoError={demoError} />
       </div>
     </main>
   )
