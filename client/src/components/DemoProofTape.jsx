@@ -87,7 +87,6 @@ export default function DemoProofTape({ demoApiUrl }) {
     <section className="demo-proof-section" id="live-demo">
       <div className="demo-proof-header">
         <div>
-          <span className="leash-micro">LIVE DEVNET DEMO · REAL EXECUTION</span>
           <h2 className="section-title">
             Execute the authenticated settlement.
           </h2>

@@ -48,7 +48,7 @@ const gateTestsFor = (evidence) => {
   ]
 }
 
-export default function AdversarialGates({ runtime, evidence, evidenceError, onRefresh }) {
+export default function AdversarialGates({ evidence, evidenceError, onRefresh }) {
   const gateTests = useMemo(() => gateTestsFor(evidence), [evidence])
   const [log, setLog] = useState([])
 
@@ -66,7 +66,6 @@ export default function AdversarialGates({ runtime, evidence, evidenceError, onR
   return (
     <section className="leash-section" id="adversarial-gates">
       <div className="section-header-wrap" data-aos="fade-up">
-        <span className="leash-micro">VERIFICATION SUITE</span>
         <h2 className="section-title">Adversarial gate proofs.</h2>
         <p className="section-desc">
           These cards read the sanitized artifacts produced by the live devnet gate suite.
@@ -85,10 +84,6 @@ export default function AdversarialGates({ runtime, evidence, evidenceError, onR
             disabled={gate.result === 'UNVERIFIED'}
             style={{ textAlign: 'left', cursor: gate.result === 'UNVERIFIED' ? 'not-allowed' : 'pointer' }}
           >
-            <div className="gate-header">
-              <span className="leash-micro">{gate.kicker}</span>
-              <span className={`gate-tag ${gate.badge === 'PASS' ? 'pass' : ''}`}>{gate.badge}</span>
-            </div>
             <h4>{gate.name}</h4>
             <p>{gate.desc}</p>
             <div className="gate-meta">
@@ -100,6 +95,7 @@ export default function AdversarialGates({ runtime, evidence, evidenceError, onR
       </div>
 
       <div
+        className="audit-log-wrap"
         style={{
           marginTop: '32px',
           border: '1px solid var(--border-strong)',
@@ -111,8 +107,7 @@ export default function AdversarialGates({ runtime, evidence, evidenceError, onR
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span className="leash-micro">RECORDED GATE AUDIT LOG</span>
-            <span className="logo-badge">SLOT: {runtime.slot}</span>
+            <h3 style={{ margin: 0, fontSize: '18px' }}>Recorded gate audit log</h3>
           </div>
           <button type="button" className="theme-switch-btn" onClick={onRefresh}>
             ↻ Re-check public runtime
@@ -133,6 +128,7 @@ export default function AdversarialGates({ runtime, evidence, evidenceError, onR
           {log.map((entry, idx) => (
             <div
               key={`${entry.gate}-${idx}`}
+              className="audit-log-row"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',

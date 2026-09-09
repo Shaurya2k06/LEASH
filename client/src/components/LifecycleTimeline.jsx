@@ -98,7 +98,6 @@ export default function LifecycleTimeline({ evidence }) {
   return (
     <section className="leash-section" id="lifecycle">
       <div className="section-header-wrap" data-aos="fade-up">
-        <span className="leash-micro">CRYPTOGRAPHIC LIFECYCLE</span>
         <h2 className="section-title">The 5-phase capability lifecycle.</h2>
         <p className="section-desc">
           How a spending permit flows from untrusted agent intent to hardware-isolated verification,
@@ -125,9 +124,6 @@ export default function LifecycleTimeline({ evidence }) {
 
         <div className="lifecycle-split-panel">
           <div className="lifecycle-content">
-            <span className="leash-micro" style={{ color: currentPhase.live ? 'var(--accent-moss)' : 'var(--accent-amber)' }}>
-              PHASE {currentPhase.number} // {currentPhase.live ? 'LIVE GATE VERIFIED' : 'SPECIFICATION'}
-            </span>
             <h3>{currentPhase.title}</h3>
             <p>{currentPhase.desc}</p>
             <div className="lifecycle-quote">“{currentPhase.quote}”</div>
@@ -135,8 +131,7 @@ export default function LifecycleTimeline({ evidence }) {
 
           <div className="lifecycle-spec-box">
             <div className="spec-box-header">
-              <span className="leash-micro">STATE MACHINE METRICS</span>
-              <span className="logo-badge">{currentPhase.live ? 'ARTIFACT LOADED' : 'PUBLIC SPEC'}</span>
+              <h4 style={{ margin: 0 }}>State machine metrics</h4>
             </div>
 
             <div className="spec-data-list">

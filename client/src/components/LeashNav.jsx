@@ -1,4 +1,5 @@
 import { scrollToTarget } from '../lib/lenis'
+import WalletConnectButton from './WalletConnectButton'
 
 export default function LeashNav({ onOpenCockpit, onOpenDemo }) {
   const scrollTo = (id) => scrollToTarget(`#${id}`, -80)
@@ -12,7 +13,6 @@ export default function LeashNav({ onOpenCockpit, onOpenDemo }) {
         <div className="logo-symbol">L</div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
           <span className="logo-text">LEASH</span>
-          <span className="logo-badge">TEE KERNEL</span>
         </div>
       </div>
 
@@ -33,7 +33,7 @@ export default function LeashNav({ onOpenCockpit, onOpenDemo }) {
               className="leash-nav-link"
               onClick={() => scrollTo('threat-model')}
             >
-              Threat Matrix
+              Security
             </button>
           </li>
           <li>
@@ -85,6 +85,7 @@ export default function LeashNav({ onOpenCockpit, onOpenDemo }) {
       </nav>
 
       <div className="leash-header-actions">
+        <WalletConnectButton />
         <button
           type="button"
           className="leash-btn-primary"

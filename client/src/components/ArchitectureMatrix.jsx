@@ -1,92 +1,133 @@
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+
+function ArchitectureNode({ data }) {
+  return (
+    <div className={`architecture-flow-node ${data.tone}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="architecture-flow-node-title">{data.title}</div>
+      <p>{data.description}</p>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  )
+}
+
+const nodeTypes = { architecture: ArchitectureNode }
+
+const edgeDefaults = {
+  type: 'smoothstep',
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#7d9698' },
+  style: { stroke: '#7d9698', strokeWidth: 1.5 },
+}
+
 export default function ArchitectureMatrix({ programId }) {
+  const nodes = [
+    {
+      id: 'agents',
+      type: 'architecture',
+      position: { x: 0, y: 80 },
+      data: { tone: 'ingress', title: 'Agent swarms', description: 'Untrusted permit requests' },
+    },
+    {
+      id: 'operator',
+      type: 'architecture',
+      position: { x: 0, y: 230 },
+      data: { tone: 'ingress', title: 'Operator / MCP', description: 'Public audit access' },
+    },
+    {
+      id: 'relay',
+      type: 'architecture',
+      position: { x: 270, y: 155 },
+      data: { tone: 'ingress', title: 'Read-only relay', description: 'Rate-limited routing' },
+    },
+    {
+      id: 'tee',
+      type: 'architecture',
+      position: { x: 540, y: 155 },
+      data: { tone: 'private', title: 'MagicBlock TEE PER', description: 'Private policy execution' },
+    },
+    {
+      id: 'policy',
+      type: 'architecture',
+      position: { x: 820, y: 30 },
+      data: { tone: 'private', title: 'SecretPolicy', description: 'Private budget constraints' },
+    },
+    {
+      id: 'ledger',
+      type: 'architecture',
+      position: { x: 820, y: 155 },
+      data: { tone: 'private', title: 'SessionLedger', description: 'Per-agent isolation' },
+    },
+    {
+      id: 'action',
+      type: 'architecture',
+      position: { x: 820, y: 280 },
+      data: { tone: 'settlement', title: 'SPL Magic Action', description: 'Atomic settlement' },
+    },
+    {
+      id: 'terminal',
+      type: 'architecture',
+      position: { x: 1090, y: 155 },
+      data: { tone: 'settlement', title: 'TerminalMarker PDA', description: 'Spent or expired' },
+    },
+    {
+      id: 'solana',
+      type: 'architecture',
+      position: { x: 1360, y: 155 },
+      data: {
+        tone: 'settlement',
+        title: 'Solana consensus',
+        description: programId ? `Devnet · ${programId.slice(0, 8)}…${programId.slice(-4)}` : 'Devnet program',
+      },
+    },
+  ]
+
+  const edges = [
+    { id: 'agents-relay', source: 'agents', target: 'relay', label: 'permit request', ...edgeDefaults },
+    { id: 'operator-relay', source: 'operator', target: 'relay', label: 'read-only query', ...edgeDefaults },
+    { id: 'relay-tee', source: 'relay', target: 'tee', label: 'authenticated route', ...edgeDefaults },
+    { id: 'tee-policy', source: 'tee', target: 'policy', label: 'evaluate', ...edgeDefaults },
+    { id: 'tee-ledger', source: 'tee', target: 'ledger', label: 'isolate', ...edgeDefaults },
+    { id: 'tee-action', source: 'tee', target: 'action', label: 'authorize', ...edgeDefaults },
+    { id: 'action-terminal', source: 'action', target: 'terminal', label: 'settle once', ...edgeDefaults },
+    { id: 'terminal-solana', source: 'terminal', target: 'solana', label: 'public marker', ...edgeDefaults },
+  ]
+
   return (
     <section className="leash-section" id="architecture">
       <div className="section-header-wrap" data-aos="fade-up">
-        <span className="leash-micro">SYSTEM TOPOLOGY</span>
-        <h2 className="section-title">
-          Three-tier confidential architecture.
-        </h2>
+        <h2 className="section-title">Confidential execution architecture.</h2>
         <p className="section-desc">
-          Strict separation between untrusted multi-agent swarms, TEE-isolated ephemeral rollups,
-          and public base-layer Solana consensus.
+          A directed path from agent intent through private policy enforcement to public settlement,
+          with sensitive state kept inside the MagicBlock TEE.
         </p>
       </div>
 
-      <div className="arch-matrix-container">
-        {/* Tier 1: Ingress */}
-        <div className="arch-tier-card" data-aos="fade-up" data-aos-delay="100">
-          <span className="tier-kicker">TIER 01 // UNTRUSTED BOUNDARY</span>
-          <h3 className="tier-title">Swarm Ingress & Relays</h3>
-          <p style={{ fontSize: '14px', color: 'var(--ink-secondary)', lineHeight: '1.45' }}>
-            External autonomous swarms submit single-use permit requests. Read-only relays validate and rate-limit JSON-RPC payloads without signing or decision authority.
-          </p>
-
-          <div className="tier-nodes">
-            <div className="node-pill">
-              <span>Hostile Agent Swarms</span>
-              <span className="leash-micro">UNTRUSTED</span>
-            </div>
-            <div className="node-pill">
-              <span>Read-Only JSON-RPC Relay</span>
-              <span className="leash-micro">RATE-LIMITED</span>
-            </div>
-            <div className="node-pill">
-              <span>Operator CLI / MCP</span>
-              <span className="leash-micro">PUBLIC AUDITOR</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tier 2: Confidential Enclave */}
-        <div className="arch-tier-card highlight" data-aos="fade-up" data-aos-delay="150">
-          <span className="tier-kicker" style={{ color: 'var(--accent-moss)' }}>
-            TIER 02 // CONFIDENTIAL KERNEL
-          </span>
-          <h3 className="tier-title">MagicBlock TEE PER</h3>
-          <p style={{ fontSize: '14px', color: 'var(--ink-secondary)', lineHeight: '1.45' }}>
-            Hardware-isolated enclaves execute private policy constraints, enforce monotonic nonces, deny sibling reads, and manage atomic reservations with zero public leakage.
-          </p>
-
-          <div className="tier-nodes">
-            <div className="node-pill" style={{ background: 'var(--bg-card)', borderColor: 'var(--accent-moss)' }}>
-              <span>SecretPolicy (Private Budget)</span>
-              <span className="leash-micro" style={{ color: 'var(--accent-moss)' }}>ENCRYPTED</span>
-            </div>
-            <div className="node-pill" style={{ background: 'var(--bg-card)', borderColor: 'var(--accent-moss)' }}>
-              <span>SessionLedger (Per-Agent)</span>
-              <span className="leash-micro" style={{ color: 'var(--accent-moss)' }}>ISOLATED</span>
-            </div>
-            <div className="node-pill" style={{ background: 'var(--bg-card)', borderColor: 'var(--accent-moss)' }}>
-              <span>EphemeralPermission</span>
-              <span className="leash-micro" style={{ color: 'var(--accent-moss)' }}>ZERO SIBLING READ</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tier 3: Settlement */}
-        <div className="arch-tier-card" data-aos="fade-up" data-aos-delay="200">
-          <span className="tier-kicker">TIER 03 // BASE SETTLEMENT</span>
-          <h3 className="tier-title">Solana Consensus</h3>
-          <p style={{ fontSize: '14px', color: 'var(--ink-secondary)', lineHeight: '1.45' }}>
-            Public settlement markers and SPL Token transfers finalize on Solana devnet. The terminal PDA guarantees mutual exclusivity: spent or expired, never replayable.
-          </p>
-
-          <div className="tier-nodes">
-            <div className="node-pill">
-              <span>SPL Magic Action Escrow</span>
-              <span className="leash-micro">TWO-PHASE</span>
-            </div>
-            <div className="node-pill">
-              <span>TerminalMarker PDA</span>
-              <span className="leash-micro">MUTUALLY EXCLUSIVE</span>
-            </div>
-            <div className="node-pill">
-              <span>Solana Devnet L1</span>
-              <span className="leash-micro">
-                PROGRAM {programId ? `${programId.slice(0, 8)}…${programId.slice(-4)}` : 'NOT CONFIGURED'}
-              </span>
-            </div>
-          </div>
+      <div className="architecture-flow-shell" data-aos="fade-up" data-aos-delay="100">
+        <div className="architecture-flow-canvas">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.16, minZoom: 0.45, maxZoom: 1 }}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            panOnScroll
+            zoomOnDoubleClick={false}
+            proOptions={{ hideAttribution: false }}
+          >
+            <Background color="#aab8b3" gap={24} size={1} />
+            <Controls showInteractive={false} />
+          </ReactFlow>
         </div>
       </div>
     </section>

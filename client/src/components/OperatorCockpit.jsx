@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import DemoProofTape from "./DemoProofTape";
+import WalletConnectButton from "./WalletConnectButton";
 
 function ExplorerLink({ href, children }) {
   return (
@@ -144,7 +145,8 @@ export default function OperatorCockpit({
           >
             ← Back to landing
           </button>
-          <span className="logo-text">LEASH / OPERATOR COCKPIT</span>
+          <span className="logo-text">LEASH · Operator</span>
+          <WalletConnectButton />
           <button
             type="button"
             className="leash-btn-primary"
@@ -162,10 +164,7 @@ export default function OperatorCockpit({
         </header>
 
         <section style={{ padding: "64px 0 32px" }}>
-          <span className="leash-micro">
-            PUBLIC OBSERVER · NO SIGNING AUTHORITY
-          </span>
-          <h1 className="section-title" style={{ marginTop: "12px" }}>
+          <h1 className="section-title">
             Kernel health & live auditing.
           </h1>
           <p className="section-desc" style={{ maxWidth: "720px" }}>
@@ -232,8 +231,7 @@ export default function OperatorCockpit({
               background: "var(--bg-card)",
             }}
           >
-            <span className="leash-micro">PUBLIC DEPLOYMENT</span>
-            <h2 style={{ margin: "10px 0 20px" }}>Devnet program</h2>
+            <h2 style={{ margin: "0 0 20px" }}>Devnet program</h2>
             <dl
               style={{
                 display: "grid",
@@ -273,8 +271,7 @@ export default function OperatorCockpit({
               background: "var(--bg-card)",
             }}
           >
-            <span className="leash-micro">EVIDENCE MANIFEST</span>
-            <h2 style={{ margin: "10px 0 20px" }}>
+            <h2 style={{ margin: "0 0 20px" }}>
               {evidence ? "Loaded from live gate run" : "Not loaded"}
             </h2>
             <dl
@@ -331,11 +328,7 @@ export default function OperatorCockpit({
               flexWrap: "wrap",
             }}
           >
-            <div>
-              <span className="leash-micro">FOUR LIVE GATES</span>
-              <h2 style={{ margin: "10px 0 4px" }}>Execute invariant gates</h2>
-            </div>
-            <span className="leash-micro">REAL DEVNET EXECUTION</span>
+            <h2 style={{ margin: "0 0 4px" }}>Execute invariant gates</h2>
           </div>
 
           {evidenceError && (

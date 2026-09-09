@@ -2,7 +2,6 @@ export default function ThreatModelSection() {
   return (
     <section className="leash-section" id="threat-model">
       <div className="section-header-wrap" data-aos="fade-up">
-        <span className="leash-micro">THREAT MATRIX</span>
         <h2 className="section-title">
           Why agent swarms break standard wallets.
         </h2>
@@ -16,12 +15,6 @@ export default function ThreatModelSection() {
         {/* Vulnerable Paradigm */}
         <div className="threat-card vulnerable" data-aos="fade-right" data-aos-delay="100">
           <div className="threat-card-header">
-            <span className="leash-micro" style={{ color: 'var(--accent-red)' }}>
-              VULNERABLE PATTERN
-            </span>
-            <span className="logo-badge" style={{ borderColor: 'var(--accent-red)', color: 'var(--accent-red)', background: 'transparent' }}>
-              HIGH RISK
-            </span>
           </div>
 
           <h3 className="threat-title" style={{ color: 'var(--accent-red)' }}>
@@ -59,12 +52,6 @@ export default function ThreatModelSection() {
         {/* LEASH Enclave Paradigm */}
         <div className="threat-card enclave" data-aos="fade-left" data-aos-delay="150">
           <div className="threat-card-header">
-            <span className="leash-micro" style={{ color: 'var(--accent-moss)' }}>
-              THE LEASH KERNEL
-            </span>
-            <span className="logo-badge" style={{ borderColor: 'var(--accent-moss)', color: 'var(--accent-moss)' }}>
-              HARDWARE VERIFIED
-            </span>
           </div>
 
           <h3 className="threat-title" style={{ color: 'var(--ink-primary)' }}>

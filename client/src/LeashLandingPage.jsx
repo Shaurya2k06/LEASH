@@ -9,7 +9,6 @@ import LifecycleTimeline from './components/LifecycleTimeline'
 import ArchitectureMatrix from './components/ArchitectureMatrix'
 import AdversarialGates from './components/AdversarialGates'
 import TrustLedgerTable from './components/TrustLedgerTable'
-import LeashDarkCta from './components/LeashDarkCta'
 import LeashFaq from './components/LeashFaq'
 import LeashFooter from './components/LeashFooter'
 
@@ -37,7 +36,7 @@ export default function LeashLandingPage({
   }, [])
 
   return (
-    <div className="leash-page">
+    <div className="leash-page leash-landing-page">
       <div className="leash-shell">
         {/* Navigation */}
         <LeashNav
@@ -74,22 +73,12 @@ export default function LeashLandingPage({
         {/* Formal Account Model & Trust Boundary Specification */}
         <TrustLedgerTable />
 
-        {/* High-Contrast Dark Callout Section */}
-        <LeashDarkCta
-          programId={programId}
-          evidence={evidence}
-          onOpenCockpit={onOpenCockpit}
-        />
-
         {/* Frequently Asked Questions */}
         <LeashFaq />
       </div>
 
       {/* Technical Colophon Footer */}
       <LeashFooter
-        runtime={runtime}
-        programId={programId}
-        evidence={evidence}
         onOpenCockpit={onOpenCockpit}
       />
     </div>

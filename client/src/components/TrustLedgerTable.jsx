@@ -40,7 +40,6 @@ export default function TrustLedgerTable() {
   return (
     <section className="leash-section" id="specification">
       <div className="section-header-wrap" data-aos="fade-up">
-        <span className="leash-micro">TRUST BOUNDARY SPECIFICATION</span>
         <h2 className="section-title">
           Account model & privacy boundaries.
         </h2>
@@ -51,6 +50,7 @@ export default function TrustLedgerTable() {
       </div>
 
       <div
+        className="trust-ledger-wrap"
         style={{
           border: '1px solid var(--border-strong)',
           borderRadius: 'var(--radius-md)',
@@ -89,15 +89,13 @@ export default function TrustLedgerTable() {
             {accounts.map((acc) => (
               <tr
                 key={acc.name}
-                style={{ borderBottom: '1px solid var(--border-hairline)' }}
+                className="trust-ledger-row"
               >
                 <td style={{ padding: '16px', fontWeight: 600, color: 'var(--ink-primary)' }}>
                   <code>{acc.name}</code>
                 </td>
                 <td style={{ padding: '16px' }}>
-                  <span className="logo-badge" style={{ fontSize: '10px' }}>
-                    {acc.tier}
-                  </span>
+                  {acc.tier}
                 </td>
                 <td style={{ padding: '16px', color: 'var(--ink-secondary)' }}>
                   {acc.publicData}

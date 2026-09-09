@@ -33,7 +33,6 @@ export default function LeashFaq() {
   return (
     <section className="leash-section" id="faq">
       <div className="section-header-wrap" data-aos="fade-up" style={{ textAlign: 'center' }}>
-        <span className="leash-micro">FREQUENTLY ASKED QUESTIONS</span>
         <h2 className="section-title">
           Architectural questions & answers.
         </h2>

@@ -1,7 +1,6 @@
-import PermitPlayground from './PermitPlayground'
 import { scrollToTarget } from '../lib/lenis'
 
-export default function LeashHero({ runtime, programId, evidence, onOpenCockpit, onOpenDemo }) {
+export default function LeashHero({ onOpenCockpit, onOpenDemo }) {
   return (
     <section className="leash-hero" id="hero">
       <h1 className="hero-display-title" data-aos="fade-up">
@@ -46,35 +45,6 @@ export default function LeashHero({ runtime, programId, evidence, onOpenCockpit,
         </button>
       </div>
 
-      {/* Live Interactive Permit Playground */}
-      <PermitPlayground evidence={evidence} />
-
-      {/* Telemetry metadata strip */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '24px',
-          marginTop: '36px',
-          flexWrap: 'wrap',
-        }}
-        data-aos="fade-up"
-        data-aos-delay="140"
-      >
-        <span className="leash-micro">
-          PROGRAM: <strong>{programId ? `${programId.slice(0, 8)}…${programId.slice(-6)}` : 'NOT CONFIGURED'}</strong>
-        </span>
-        <span className="leash-micro">
-          BASE SLOT: <strong>{runtime.slot}</strong>
-        </span>
-        <span className="leash-micro">
-          TEE PRIVACY: <strong>{evidence?.gates?.privacy?.status === 'passed' ? 'VERIFIED' : 'UNVERIFIED'}</strong>
-        </span>
-        <span className="leash-micro">
-          RPC HEALTH: <strong style={{ color: 'var(--ink-primary)' }}>{runtime.state}</strong>
-        </span>
-      </div>
     </section>
   )
 }
