@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { web3 } = require("@coral-xyz/anchor");
 
 const {
   createDemoServer,
@@ -9,6 +10,7 @@ const {
 const {
   accountRef,
   hasEnumVariant,
+  keypairFromJson,
   transactionRef,
 } = require("../tests/artifact");
 
@@ -37,11 +39,24 @@ test("parses runner progress events", () => {
 test("classifies startup failures without exposing stderr", () => {
   assert.equal(
     runnerFailure("SyntaxError: Unexpected token in JSON"),
-    "Demo wallet configuration is invalid."
+    "Demo wallet configuration is invalid; set DEMO_WALLET_KEYPAIR to the 64-byte JSON array."
   );
   assert.equal(
     runnerFailure("Error: Cannot find module '/srv/node_modules/ts-node'"),
     "Demo runtime dependencies are unavailable."
+  );
+});
+
+test("accepts direct and quoted wallet JSON", () => {
+  const source = web3.Keypair.generate();
+  const json = JSON.stringify(Array.from(source.secretKey));
+  assert.equal(
+    keypairFromJson(json).publicKey.toBase58(),
+    source.publicKey.toBase58()
+  );
+  assert.equal(
+    keypairFromJson(JSON.stringify(json)).publicKey.toBase58(),
+    source.publicKey.toBase58()
   );
 });
 

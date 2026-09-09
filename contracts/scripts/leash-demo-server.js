@@ -34,8 +34,12 @@ function parseDemoEvent(line) {
 }
 
 function runnerFailure(stderr) {
-  if (/DEMO_WALLET_KEYPAIR|Unexpected token|JSON/.test(stderr))
-    return "Demo wallet configuration is invalid.";
+  if (
+    /DEMO_WALLET_KEYPAIR|Unexpected token|JSON|ENOENT|ENAMETOOLONG|secret key/i.test(
+      stderr
+    )
+  )
+    return "Demo wallet configuration is invalid; set DEMO_WALLET_KEYPAIR to the 64-byte JSON array.";
   if (/Invalid public key input/.test(stderr))
     return "Demo public-key configuration is invalid.";
   if (/LEASH_PROGRAM_ID does not match/.test(stderr))

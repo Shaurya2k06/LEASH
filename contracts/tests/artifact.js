@@ -3,9 +3,17 @@ const { resolve } = require("node:path");
 const { Wallet, web3 } = require("@coral-xyz/anchor");
 
 function controllerKeypair() {
-  const configured = process.env.DEMO_WALLET_KEYPAIR;
+  const anchorWallet = process.env.ANCHOR_WALLET;
+  const configured =
+    process.env.DEMO_WALLET_KEYPAIR ||
+    (anchorWallet?.trimStart().startsWith("[") ? anchorWallet : null);
   if (!configured) return Wallet.local().payer;
-  const bytes = JSON.parse(configured);
+  return keypairFromJson(configured);
+}
+
+function keypairFromJson(configured) {
+  let bytes = JSON.parse(configured);
+  if (typeof bytes === "string") bytes = JSON.parse(bytes);
   if (
     !Array.isArray(bytes) ||
     bytes.length !== 64 ||
@@ -59,6 +67,7 @@ function writeArtifact(name, value) {
 }
 
 exports.controllerKeypair = controllerKeypair;
+exports.keypairFromJson = keypairFromJson;
 exports.accountRef = accountRef;
 exports.explorerAccount = explorerAccount;
 exports.explorerTransaction = explorerTransaction;
