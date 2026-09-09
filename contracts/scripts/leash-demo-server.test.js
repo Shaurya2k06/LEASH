@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { createDemoServer, parseDemoEvent } = require("./leash-demo-server");
+const {
+  createDemoServer,
+  parseDemoEvent,
+  runnerFailure,
+} = require("./leash-demo-server");
 const {
   accountRef,
   hasEnumVariant,
@@ -28,6 +32,17 @@ test("parses runner progress events", () => {
     { type: "step", step: { id: "one" } }
   );
   assert.equal(parseDemoEvent("ordinary log line"), null);
+});
+
+test("classifies startup failures without exposing stderr", () => {
+  assert.equal(
+    runnerFailure("SyntaxError: Unexpected token in JSON"),
+    "Demo wallet configuration is invalid."
+  );
+  assert.equal(
+    runnerFailure("Error: Cannot find module '/srv/node_modules/ts-node'"),
+    "Demo runtime dependencies are unavailable."
+  );
 });
 
 test("matches Anchor enum variants regardless of IDL casing", () => {

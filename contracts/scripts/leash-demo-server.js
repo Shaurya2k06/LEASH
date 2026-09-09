@@ -33,6 +33,20 @@ function parseDemoEvent(line) {
   return JSON.parse(line.slice(EVENT_PREFIX.length));
 }
 
+function runnerFailure(stderr) {
+  if (/DEMO_WALLET_KEYPAIR|Unexpected token|JSON/.test(stderr))
+    return "Demo wallet configuration is invalid.";
+  if (/Invalid public key input/.test(stderr))
+    return "Demo public-key configuration is invalid.";
+  if (/LEASH_PROGRAM_ID does not match/.test(stderr))
+    return "Demo program configuration does not match the checked-in IDL.";
+  if (/Cannot find module|MODULE_NOT_FOUND/.test(stderr))
+    return "Demo runtime dependencies are unavailable.";
+  if (/Failed to find IDL|anchor build/.test(stderr))
+    return "Demo program IDL is unavailable.";
+  return "Demo runner exited before completion. Check worker logs.";
+}
+
 function isConfigured() {
   return (
     REQUIRED_ENV.every((name) => process.env[name]) &&
@@ -78,7 +92,7 @@ function launchDemo({ runId, onEvent }) {
         resolvePromise(artifact);
       } catch (error) {
         console.error("Demo runner failed", stderr || error);
-        reject(error);
+        reject(new Error(runnerFailure(stderr)));
       } finally {
         unlink(output).catch(() => {});
       }
@@ -298,14 +312,14 @@ function createDemoServer(options = {}) {
           if (artifact.status === "failed") lastStartedAt = 0;
         }
       })
-      .catch(() => {
+      .catch((error) => {
         lastStartedAt = 0;
         if (demoState.runId === runId) {
           demoState = {
             ...demoState,
             status: "failed",
             finishedAt: new Date().toISOString(),
-            error: "Demo runner exited before completion. Check worker logs.",
+            error: error.message,
           };
         }
       })
@@ -322,4 +336,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createDemoServer, parseDemoEvent };
+module.exports = { createDemoServer, parseDemoEvent, runnerFailure };
