@@ -82,7 +82,6 @@ test("starts a real gate through the worker endpoint", async (t) => {
   const artifact = { status: "passed", generatedAt: "now" };
   const server = createDemoServer({
     configured: true,
-    cooldownMs: 0,
     runGate: async ({ gate }) => ({ ...artifact, gate }),
   });
   const url = await listen(server);
@@ -99,7 +98,6 @@ test("starts a live run and publishes confirmed steps", async (t) => {
   const step = { id: "create-policy", status: "confirmed" };
   const server = createDemoServer({
     configured: true,
-    cooldownMs: 0,
     runDemo: async ({ onEvent }) => {
       onEvent({ type: "startup", stage: "provider" });
       onEvent({ type: "started", network: "solana-devnet" });
@@ -126,16 +124,14 @@ test("starts a live run and publishes confirmed steps", async (t) => {
   assert.deepEqual(state.steps, [step]);
 });
 
-test("allows an immediate retry after a failed demo", async (t) => {
+test("rejects concurrent demo runs", async (t) => {
   const server = createDemoServer({
     configured: true,
-    cooldownMs: 60_000,
-    runDemo: async () => ({ status: "failed", steps: [] }),
+    runDemo: () => new Promise(() => {}),
   });
   const url = await listen(server);
   t.after(() => close(server));
 
   assert.equal((await fetch(`${url}/demo`, { method: "POST" })).status, 202);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal((await fetch(`${url}/demo`, { method: "POST" })).status, 202);
+  assert.equal((await fetch(`${url}/demo`, { method: "POST" })).status, 409);
 });

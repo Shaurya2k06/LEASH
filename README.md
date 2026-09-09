@@ -43,8 +43,8 @@ cd client && npm run dev
 Deploy the worker as a separate Render service with root directory `contracts`,
 build command `yarn install --frozen-lockfile`, and start command
 `yarn demo:server`. Configure `SOLANA_RPC_URL`, `MB_TEE_RPC_URL`,
-`MB_TEE_VALIDATOR`, `LEASH_PROGRAM_ID`, `ALLOWED_ORIGIN`, and
-`DEMO_COOLDOWN_MS`. Store the 64-byte wallet JSON only in Render as the secret
+`MB_TEE_VALIDATOR`, `LEASH_PROGRAM_ID`, and `ALLOWED_ORIGIN`. Store the 64-byte
+wallet JSON only in Render as the secret
 `DEMO_WALLET_KEYPAIR`, then set Vercel's `VITE_DEMO_API_URL` to that service.
 Never put the wallet value in Vercel.
 

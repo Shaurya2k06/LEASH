@@ -157,12 +157,9 @@ function createDemoServer(options = {}) {
     options.allowedOrigin ||
     process.env.ALLOWED_ORIGIN ||
     "http://localhost:5173";
-  const cooldownMs =
-    options.cooldownMs ?? Number(process.env.DEMO_COOLDOWN_MS || 60_000);
   const configured = options.configured ?? isConfigured();
   const runDemo = options.runDemo || launchDemo;
   const runGate = options.runGate || launchGate;
-  let lastStartedAt = 0;
   let demoState = { status: "idle", steps: [] };
   let gateStates = Object.fromEntries(
     Object.keys(GATES).map((gate) => [gate, { status: "idle" }])
@@ -217,17 +214,7 @@ function createDemoServer(options = {}) {
           .end(JSON.stringify({ error: "Another live job is running." }));
         return;
       }
-      const retryAfterMs = lastStartedAt + cooldownMs - Date.now();
-      if (retryAfterMs > 0) {
-        response
-          .writeHead(429)
-          .end(
-            JSON.stringify({ error: "Demo cooldown is active.", retryAfterMs })
-          );
-        return;
-      }
       activeJob = true;
-      lastStartedAt = Date.now();
       gateStates = {
         ...gateStates,
         [gate]: { status: "running", startedAt: new Date().toISOString() },
@@ -238,7 +225,6 @@ function createDemoServer(options = {}) {
           gateStates = { ...gateStates, [gate]: artifact };
         })
         .catch((error) => {
-          lastStartedAt = 0;
           console.error(`${gate} gate failed`, error);
           gateStates = {
             ...gateStates,
@@ -272,23 +258,12 @@ function createDemoServer(options = {}) {
       response.writeHead(409).end(JSON.stringify(demoState));
       return;
     }
-    const retryAfterMs = lastStartedAt + cooldownMs - Date.now();
-    if (retryAfterMs > 0) {
-      response.writeHead(429).end(
-        JSON.stringify({
-          error: "Demo cooldown is active.",
-          retryAfterMs,
-        })
-      );
-      return;
-    }
-
     const runId = randomUUID();
-    lastStartedAt = Date.now();
+    const startedAt = Date.now();
     demoState = {
       runId,
       status: "running",
-      startedAt: new Date(lastStartedAt).toISOString(),
+      startedAt: new Date(startedAt).toISOString(),
       steps: [],
     };
     activeJob = true;
@@ -315,11 +290,9 @@ function createDemoServer(options = {}) {
       .then((artifact) => {
         if (demoState.runId === runId) {
           demoState = { ...demoState, ...artifact, runId };
-          if (artifact.status === "failed") lastStartedAt = 0;
         }
       })
       .catch((error) => {
-        lastStartedAt = 0;
         if (demoState.runId === runId) {
           demoState = {
             ...demoState,
