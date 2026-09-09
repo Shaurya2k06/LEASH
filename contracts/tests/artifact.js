@@ -27,6 +27,24 @@ function hasEnumVariant(value, name) {
   );
 }
 
+function explorerTransaction(signature) {
+  return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
+}
+
+function explorerAccount(address) {
+  const value = address.toBase58 ? address.toBase58() : address;
+  return `https://explorer.solana.com/address/${value}?cluster=devnet`;
+}
+
+function transactionRef(signature, label = "Confirmed gate transaction") {
+  return { label, signature, explorerUrl: explorerTransaction(signature) };
+}
+
+function accountRef(address, label = "Gate account") {
+  const value = address.toBase58 ? address.toBase58() : address;
+  return { label, address: value, explorerUrl: explorerAccount(address) };
+}
+
 function writeArtifact(name, value) {
   const directory = resolve(process.env.LEASH_ARTIFACT_DIR || "artifacts");
   mkdirSync(directory, { recursive: true });
@@ -41,6 +59,10 @@ function writeArtifact(name, value) {
 }
 
 exports.controllerKeypair = controllerKeypair;
+exports.accountRef = accountRef;
+exports.explorerAccount = explorerAccount;
+exports.explorerTransaction = explorerTransaction;
 exports.requiredEnv = requiredEnv;
 exports.hasEnumVariant = hasEnumVariant;
+exports.transactionRef = transactionRef;
 exports.writeArtifact = writeArtifact;

@@ -2,7 +2,11 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const { createDemoServer, parseDemoEvent } = require("./leash-demo-server");
-const { hasEnumVariant } = require("../tests/artifact");
+const {
+  accountRef,
+  hasEnumVariant,
+  transactionRef,
+} = require("../tests/artifact");
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -30,6 +34,18 @@ test("matches Anchor enum variants regardless of IDL casing", () => {
   assert.equal(hasEnumVariant({ Spent: {} }, "spent"), true);
   assert.equal(hasEnumVariant({ spent: {} }, "spent"), true);
   assert.equal(hasEnumVariant({ Open: {} }, "spent"), false);
+});
+
+test("creates public Explorer references for gate evidence", () => {
+  assert.deepEqual(transactionRef("signature"), {
+    label: "Confirmed gate transaction",
+    signature: "signature",
+    explorerUrl: "https://explorer.solana.com/tx/signature?cluster=devnet",
+  });
+  assert.equal(
+    accountRef("address").explorerUrl,
+    "https://explorer.solana.com/address/address?cluster=devnet"
+  );
 });
 
 test("starts a real gate through the worker endpoint", async (t) => {

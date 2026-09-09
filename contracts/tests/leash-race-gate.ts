@@ -11,9 +11,11 @@ import {
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
 import {
+  accountRef,
   controllerKeypair,
   hasEnumVariant,
   requiredEnv,
+  transactionRef,
   writeArtifact,
 } from "./artifact.js";
 
@@ -29,6 +31,7 @@ const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
 const PAYLOAD_HASH = Array(32).fill(8);
 const AGENT_COUNT = 20;
 const gate = process.env.LEASH_RACE_TEST === "1" ? describe : describe.skip;
+const transactions: Array<ReturnType<typeof transactionRef>> = [];
 
 const withToken = (endpoint: string, token: string) =>
   `${endpoint}?token=${encodeURIComponent(token)}`;
@@ -73,6 +76,7 @@ async function send(
       }`
     );
   }
+  transactions.push(transactionRef(signature));
   return signature;
 }
 
@@ -93,6 +97,7 @@ async function mustFailWith(
 
 gate("LEASH twenty-agent budget race gate", () => {
   it("allows exactly one reservation against the last budget", async () => {
+    transactions.length = 0;
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
     const controller = controllerKeypair();
@@ -524,6 +529,13 @@ gate("LEASH twenty-agent budget race gate", () => {
       successfulReservations: attempts.filter(Boolean).length,
       losingReservations: attempts.filter((attempt) => !attempt).length,
       exactBudgetPreserved: true,
+      transactions,
+      accounts: [
+        accountRef(policy, "Policy"),
+        accountRef(sessions[winnerIndex], "Winning session ledger"),
+        accountRef(winnerReceipt, "Winning settlement receipt"),
+        accountRef(winnerTerminal, "Winning terminal marker"),
+      ],
     });
   });
 });

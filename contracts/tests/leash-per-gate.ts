@@ -10,7 +10,13 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { controllerKeypair, requiredEnv, writeArtifact } from "./artifact.js";
+import {
+  accountRef,
+  controllerKeypair,
+  requiredEnv,
+  transactionRef,
+  writeArtifact,
+} from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -23,6 +29,7 @@ const TEE_VALIDATOR = new web3.PublicKey(requiredEnv("MB_TEE_VALIDATOR"));
 const ACTION_DISCRIMINATOR = [10, 58, 136, 98, 207, 113, 239, 90];
 const PAYLOAD_HASH = Array(32).fill(8);
 const gate = process.env.LEASH_PER_TEST === "1" ? describe : describe.skip;
+const transactions: Array<ReturnType<typeof transactionRef>> = [];
 
 const withToken = (endpoint: string, token: string) =>
   `${endpoint}?token=${encodeURIComponent(token)}`;
@@ -67,6 +74,7 @@ async function send(
       }`
     );
   }
+  transactions.push(transactionRef(signature));
   return signature;
 }
 
@@ -87,6 +95,7 @@ async function mustFailWith(
 
 gate("LEASH TEE sibling-read gate", () => {
   it("allows an agent ledger while denying a sibling", async () => {
+    transactions.length = 0;
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
     const controller = controllerKeypair();
@@ -534,6 +543,11 @@ gate("LEASH TEE sibling-read gate", () => {
       siblingSubscriptionLeaked: false,
       siblingTransactionSecretBytes: false,
       siblingSimulationSecretBytes: false,
+      transactions,
+      accounts: [
+        accountRef(policy, "Policy"),
+        accountRef(session, "Session ledger"),
+      ],
     });
   });
 });

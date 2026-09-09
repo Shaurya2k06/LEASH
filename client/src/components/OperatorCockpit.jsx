@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import DemoProofTape from "./DemoProofTape";
 
+function ExplorerLink({ href, children }) {
+  return (
+    <a className="demo-proof-link" href={href} target="_blank" rel="noreferrer">
+      {children} ↗
+    </a>
+  );
+}
+
 const gateRowsFor = (gates) => {
   const result = (gate, passed) => {
     if (gate?.status === "passed") return passed(gate);
@@ -15,6 +23,7 @@ const gateRowsFor = (gates) => {
       detail: "Direct, batch, subscription, transaction, and simulation paths",
       result: result(gates.privacy, () => "DENIED"),
       source: gates.privacy?.generatedAt || "Not run in this worker session",
+      proof: gates.privacy,
     },
     {
       id: "settlement",
@@ -22,6 +31,7 @@ const gateRowsFor = (gates) => {
       detail: "Underfunded action preserves reservation; retry pays once",
       result: result(gates.settlement, () => "PRESERVED"),
       source: gates.settlement?.generatedAt || "Not run in this worker session",
+      proof: gates.settlement,
     },
     {
       id: "expiry",
@@ -29,6 +39,7 @@ const gateRowsFor = (gates) => {
       detail: "Expired terminal blocks settlement and replay",
       result: result(gates.expiry, () => "REJECTED"),
       source: gates.expiry?.generatedAt || "Not run in this worker session",
+      proof: gates.expiry,
     },
     {
       id: "race",
@@ -40,6 +51,7 @@ const gateRowsFor = (gates) => {
           `${gate.successfulReservations} WON / ${gate.losingReservations} REJECTED`,
       ),
       source: gates.race?.generatedAt || "Not run in this worker session",
+      proof: gates.race,
     },
   ];
 };
@@ -351,40 +363,66 @@ export default function OperatorCockpit({
 
           <div style={{ display: "grid", gap: "10px", marginTop: "20px" }}>
             {gates.map((gate) => (
-              <button
-                key={gate.id}
-                type="button"
-                onClick={() => runGate(gate.id)}
-                disabled={gateRunning || !demoApiUrl}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(0, 1fr) auto",
-                  gap: "16px",
-                  alignItems: "center",
-                  width: "100%",
-                  padding: "16px",
-                  textAlign: "left",
-                  border: "1px solid var(--border-hairline)",
-                  background: "var(--bg-canvas)",
-                  color: "var(--ink-primary)",
-                  cursor:
-                    gateRunning || !demoApiUrl ? "not-allowed" : "pointer",
-                }}
-              >
-                <span>
-                  <strong style={{ display: "block" }}>{gate.label}</strong>
-                  <small
-                    style={{
-                      display: "block",
-                      marginTop: "4px",
-                      color: "var(--ink-secondary)",
-                    }}
+              <div key={gate.id}>
+                <button
+                  type="button"
+                  onClick={() => runGate(gate.id)}
+                  disabled={gateRunning || !demoApiUrl}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: "16px",
+                    alignItems: "center",
+                    width: "100%",
+                    padding: "16px",
+                    textAlign: "left",
+                    border: "1px solid var(--border-hairline)",
+                    background: "var(--bg-canvas)",
+                    color: "var(--ink-primary)",
+                    cursor:
+                      gateRunning || !demoApiUrl ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <span>
+                    <strong style={{ display: "block" }}>{gate.label}</strong>
+                    <small
+                      style={{
+                        display: "block",
+                        marginTop: "4px",
+                        color: "var(--ink-secondary)",
+                      }}
+                    >
+                      {gate.detail} · {gate.source}
+                    </small>
+                  </span>
+                  <strong>{gate.result}</strong>
+                </button>
+                {gate.proof?.status === "passed" && (
+                  <div
+                    className="demo-proof-links"
+                    style={{ padding: "10px 16px", background: "var(--bg-card)" }}
                   >
-                    {gate.detail} · {gate.source}
-                  </small>
-                </span>
-                <strong>{gate.result}</strong>
-              </button>
+                    {(gate.proof.transactions || []).slice(0, 6).map((transaction) => (
+                      <ExplorerLink
+                        key={transaction.signature}
+                        href={transaction.explorerUrl}
+                      >
+                        {transaction.label}
+                      </ExplorerLink>
+                    ))}
+                    {(gate.proof.accounts || []).map((account) => (
+                      <ExplorerLink key={account.address} href={account.explorerUrl}>
+                        {account.label}
+                      </ExplorerLink>
+                    ))}
+                    {gate.proof.transactions?.length > 6 && (
+                      <span className="leash-micro">
+                        +{gate.proof.transactions.length - 6} more transaction links in worker result
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </section>
