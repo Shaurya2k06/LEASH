@@ -12,7 +12,12 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact.js";
+import {
+  controllerKeypair,
+  hasEnumVariant,
+  requiredEnv,
+  writeArtifact,
+} from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -92,7 +97,7 @@ gate("LEASH expiry terminal gate", () => {
   it("publishes expiry and prevents a later payment race", async () => {
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
-    const controller = anchor.Wallet.local().payer;
+    const controller = controllerKeypair();
     const agent = web3.Keypair.generate();
     const base = new anchor.AnchorProvider(
       new web3.Connection(baseEndpoint, { commitment: "confirmed" }),
@@ -273,7 +278,7 @@ gate("LEASH expiry terminal gate", () => {
       (await controllerEr.connection.getSlot()) + 300
     );
     const permitExpiry = new anchor.BN(
-      (await controllerEr.connection.getSlot()) + 20
+      (await controllerEr.connection.getSlot()) + 50
     );
     await send(
       controllerEr,
@@ -310,7 +315,7 @@ gate("LEASH expiry terminal gate", () => {
         .transaction()
     );
 
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       if ((await controllerEr.connection.getSlot()) > permitExpiry.toNumber())
         break;
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -355,7 +360,7 @@ gate("LEASH expiry terminal gate", () => {
       const marker = await program.account.terminalMarker.fetchNullable(
         terminal
       );
-      if (marker?.kind?.expired !== undefined) {
+      if (hasEnumVariant(marker?.kind, "expired")) {
         expired = true;
         break;
       }
@@ -414,7 +419,7 @@ gate("LEASH expiry terminal gate", () => {
       .rpc();
     const reopenedMarker = await program.account.terminalMarker.fetch(terminal);
     if (
-      reopenedMarker.kind.open === undefined ||
+      !hasEnumVariant(reopenedMarker.kind, "open") ||
       reopenedMarker.history.length !== 1
     )
       throw new Error("terminal reset did not preserve its bounded history");

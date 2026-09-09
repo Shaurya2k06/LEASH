@@ -2,9 +2,9 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
 import {
   createMint,
+  createMintToInstruction,
   getAccount,
   getOrCreateAssociatedTokenAccount,
-  mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -21,7 +21,11 @@ import * as nacl from "tweetnacl";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv } from "../tests/artifact.js";
+import {
+  controllerKeypair,
+  hasEnumVariant,
+  requiredEnv,
+} from "../tests/artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -49,6 +53,10 @@ type DemoStep = {
   }>;
   accounts?: Array<{ address: string; explorerUrl: string }>;
 };
+
+function emitDemoEvent(type: string, value: Record<string, unknown> = {}) {
+  console.log(`LEASH_DEMO_EVENT ${JSON.stringify({ type, ...value })}`);
+}
 
 const sleep = (milliseconds: number) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -133,7 +141,7 @@ function addStep(
   detail?: string,
   accounts?: web3.PublicKey[]
 ) {
-  steps.push({
+  const step: DemoStep = {
     id,
     label,
     phase,
@@ -141,7 +149,9 @@ function addStep(
     ...(detail ? { detail } : {}),
     ...(signature ? { signature, explorerUrl: explorerTx(signature) } : {}),
     ...(accounts?.length ? { accounts: accounts.map(accountRef) } : {}),
-  });
+  };
+  steps.push(step);
+  emitDemoEvent("step", { step });
 }
 
 async function recordRpc(
@@ -222,7 +232,7 @@ async function waitForSpent(
     const marker = await program.account.terminalMarker.fetchNullable(terminal);
     const balance = (await getAccount(base.connection, recipientToken)).amount;
     if (
-      marker?.kind?.spent !== undefined &&
+      hasEnumVariant(marker?.kind, "spent") &&
       balance === before + expectedAmount
     )
       return;
@@ -233,7 +243,7 @@ async function waitForSpent(
 
 function writeDemo(value: Record<string, unknown>) {
   const output = resolve(
-    process.env.LEASH_DEMO_OUTPUT || "../client/public/demo.json"
+    process.env.LEASH_DEMO_OUTPUT || "artifacts/leash-demo.json"
   );
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(value, null, 2)}\n`);
@@ -246,7 +256,7 @@ async function main() {
   const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
   const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
   const teeValidator = new web3.PublicKey(requiredEnv("MB_TEE_VALIDATOR"));
-  const controller = anchor.Wallet.local().payer;
+  const controller = controllerKeypair();
   const agent = web3.Keypair.generate();
   const sibling = web3.Keypair.generate();
   const base = new anchor.AnchorProvider(
@@ -255,6 +265,17 @@ async function main() {
   );
   anchor.setProvider(base);
   const program = anchor.workspace.Contracts as Program<Contracts>;
+  const configuredProgram = new web3.PublicKey(requiredEnv("LEASH_PROGRAM_ID"));
+  if (!program.programId.equals(configuredProgram))
+    throw new Error("LEASH_PROGRAM_ID does not match the checked-in IDL");
+  emitDemoEvent("started", {
+    startedAt,
+    network: "solana-devnet",
+    program: {
+      id: program.programId.toBase58(),
+      explorerUrl: explorerAccount(program.programId),
+    },
+  });
   const policyId = new anchor.BN(Date.now());
   const [policy] = web3.PublicKey.findProgramAddressSync(
     [
@@ -310,27 +331,24 @@ async function main() {
       "Authenticated MagicBlock endpoint accepted"
     );
 
-    await recordRpc(
+    await recordTransaction(
       steps,
       "fund-participants",
       "Fund agent and privacy sibling",
       "base",
-      () =>
-        base.sendAndConfirm(
-          new web3.Transaction().add(
-            web3.SystemProgram.transfer({
-              fromPubkey: controller.publicKey,
-              toPubkey: agent.publicKey,
-              lamports: 10_000_000,
-            }),
-            web3.SystemProgram.transfer({
-              fromPubkey: controller.publicKey,
-              toPubkey: sibling.publicKey,
-              lamports: 10_000_000,
-            })
-          ),
-          [controller]
-        ),
+      base,
+      new web3.Transaction().add(
+        web3.SystemProgram.transfer({
+          fromPubkey: controller.publicKey,
+          toPubkey: agent.publicKey,
+          lamports: 10_000_000,
+        }),
+        web3.SystemProgram.transfer({
+          fromPubkey: controller.publicKey,
+          toPubkey: sibling.publicKey,
+          lamports: 10_000_000,
+        })
+      ),
       "Controller funds the demo identities",
       [controller.publicKey, agent.publicKey, sibling.publicKey]
     );
@@ -367,20 +385,20 @@ async function main() {
       "Public settlement accounts are ready",
       [mint, sourceVault, recipientToken]
     );
-    await recordRpc(
+    await recordTransaction(
       steps,
       "fund-escrow",
       "Fund escrow for settlement",
       "base",
-      () =>
-        mintTo(
-          base.connection,
-          controller,
+      base,
+      new web3.Transaction().add(
+        createMintToInstruction(
           mint,
           sourceVault,
-          controller,
+          controller.publicKey,
           2_000_000
-        ),
+        )
+      ),
       "Escrow holds enough tokens for one permitted action",
       [sourceVault]
     );
@@ -672,6 +690,9 @@ async function main() {
       "Pending settlement remains hidden from base RPC",
       [receipt, terminal]
     );
+    const recipientBalanceBefore = (
+      await getAccount(base.connection, recipientToken)
+    ).amount;
     const commitSignature = await recordTransaction(
       steps,
       "commit-settlement",
@@ -696,9 +717,6 @@ async function main() {
       "TEE authenticates the action before scheduling it",
       [receipt, terminal, escrow, sourceVault, recipientToken]
     );
-    const recipientBalanceBefore = (
-      await getAccount(base.connection, recipientToken)
-    ).amount;
     const scheduled = await scheduledSignatures(controllerEr, commitSignature);
     const actionSignature =
       scheduled.actionSignature || scheduled.executionSignature;

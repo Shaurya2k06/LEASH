@@ -63,6 +63,7 @@ jobs:
       - run: cargo test -p contracts
       - run: yarn typecheck
       - run: yarn lint
+      - run: yarn test:demo-server
       - name: Run static contract tests
         run: LEASH_PROGRAM_ID="$(sed -n 's/^contracts = "\([^"]*\)"/\1/p' Anchor.toml)" yarn test:leash
       - name: Collect contract artifacts

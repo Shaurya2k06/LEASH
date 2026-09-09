@@ -1,8 +1,10 @@
 node_modules/
 dist/
 target/
+!contracts/target/
+!contracts/target/idl/
+!contracts/target/idl/contracts.json
 *.log
 .env
 .env.*
 !.env.example
-

@@ -19,7 +19,12 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact.js";
+import {
+  controllerKeypair,
+  hasEnumVariant,
+  requiredEnv,
+  writeArtifact,
+} from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -102,7 +107,7 @@ gate("LEASH Magic Action settlement gate", () => {
   it("pays once through the authenticated action and leaves a terminal marker", async () => {
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
-    const controller = anchor.Wallet.local().payer;
+    const controller = controllerKeypair();
     const agent = web3.Keypair.generate();
     const sibling = web3.Keypair.generate();
     const base = new anchor.AnchorProvider(
@@ -658,7 +663,7 @@ gate("LEASH Magic Action settlement gate", () => {
       await getAccount(base.connection, recipientToken.address)
     ).amount;
     if (
-      markerAfterFailure.kind.open === undefined ||
+      !hasEnumVariant(markerAfterFailure.kind, "open") ||
       balanceAfterFailure !== before
     )
       throw new Error("failed payment changed public settlement state");
@@ -670,7 +675,7 @@ gate("LEASH Magic Action settlement gate", () => {
       "sessionLedger",
       reservedInfo.data
     );
-    if (reserved.state.reserved === undefined)
+    if (!hasEnumVariant(reserved.state, "reserved"))
       throw new Error("failed payment consumed the private reservation");
 
     await mintTo(
@@ -733,7 +738,7 @@ gate("LEASH Magic Action settlement gate", () => {
         await getAccount(base.connection, recipientToken.address)
       ).amount;
       if (
-        marker?.kind?.spent !== undefined &&
+        hasEnumVariant(marker?.kind, "spent") &&
         balance === before + BigInt(amount.toString())
       ) {
         settled = true;
@@ -771,7 +776,7 @@ gate("LEASH Magic Action settlement gate", () => {
       "sessionLedger",
       spentInfo.data
     );
-    if (spent.state.spent === undefined)
+    if (!hasEnumVariant(spent.state, "spent"))
       throw new Error("successful payment did not consume the reservation");
 
     await mustFailWith(
@@ -803,7 +808,7 @@ gate("LEASH Magic Action settlement gate", () => {
       .rpc();
     const reopenedMarker = await program.account.terminalMarker.fetch(terminal);
     if (
-      reopenedMarker.kind.open === undefined ||
+      !hasEnumVariant(reopenedMarker.kind, "open") ||
       reopenedMarker.history.length !== 1
     )
       throw new Error("terminal reset did not preserve its bounded history");

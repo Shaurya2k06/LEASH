@@ -5,7 +5,8 @@
    ========================================================================== */
 
 /* Lenis smooth scroll core */
-html.lenis, html.lenis body {
+html.lenis,
+html.lenis body {
   height: auto;
 }
 
@@ -56,7 +57,8 @@ html.lenis, html.lenis body {
   --font-serif: ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-italic: ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "DM Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono:
+    "DM Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --max-width: 1160px;
   --radius-xs: 3px;
@@ -69,18 +71,26 @@ html.lenis, html.lenis body {
   --shadow-hover: 0 0 14px rgba(115, 232, 239, 0.08);
 }
 
-html, body {
+html,
+body {
   background-color: var(--bg-canvas);
   color: var(--ink-primary);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--ink-primary);
   font-family: var(--font-sans);
   font-weight: 500;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -92,7 +102,9 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 240ms ease, color 240ms ease;
+  transition:
+    background-color 240ms ease,
+    color 240ms ease;
   overflow-x: hidden;
 }
 
@@ -263,7 +275,9 @@ body {
   letter-spacing: 0.04em;
   text-decoration: none;
   cursor: pointer;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .leash-btn-primary:hover {
@@ -399,7 +413,8 @@ body {
   margin-bottom: 5px;
 }
 
-.playground-field input, .playground-field select {
+.playground-field input,
+.playground-field select {
   width: 100%;
   background: var(--bg-canvas);
   border: 1px solid var(--border-hairline);
@@ -809,6 +824,20 @@ body {
   color: var(--accent-green);
 }
 
+.demo-proof-status.is-running {
+  color: var(--accent-cyan);
+}
+
+.demo-proof-status.is-running .demo-proof-status-dot {
+  animation: demo-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes demo-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
 .demo-proof-status-dot {
   width: 7px;
   height: 7px;
@@ -862,6 +891,15 @@ body {
   padding: 14px;
   border: 1px solid var(--border-strong);
   background: var(--bg-card-subtle);
+}
+
+.demo-proof-waiting {
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card-subtle);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .demo-proof-node {
@@ -1122,7 +1160,8 @@ body {
   gap: 8px;
 }
 
-.footer-col button, .footer-col a {
+.footer-col button,
+.footer-col a {
   background: none;
   border: none;
   padding: 0;
@@ -1133,7 +1172,8 @@ body {
   transition: color 150ms ease;
 }
 
-.footer-col button:hover, .footer-col a:hover {
+.footer-col button:hover,
+.footer-col a:hover {
   color: var(--ink-primary);
 }
 

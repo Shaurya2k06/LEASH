@@ -10,7 +10,12 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact.js";
+import {
+  controllerKeypair,
+  hasEnumVariant,
+  requiredEnv,
+  writeArtifact,
+} from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -90,7 +95,7 @@ gate("LEASH twenty-agent budget race gate", () => {
   it("allows exactly one reservation against the last budget", async () => {
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
-    const controller = anchor.Wallet.local().payer;
+    const controller = controllerKeypair();
     const base = new anchor.AnchorProvider(
       new web3.Connection(baseEndpoint, { commitment: "confirmed" }),
       new anchor.Wallet(controller)
@@ -166,21 +171,19 @@ gate("LEASH twenty-agent budget race gate", () => {
       })
       .signers([controller])
       .rpc();
-    await Promise.all(
-      agents.map(async ({ agent }, index) =>
-        program.methods
-          .createSession()
-          .accountsPartial({
-            agent: agent.publicKey,
-            policy,
-            controller: controller.publicKey,
-            session: sessions[index],
-            systemProgram: web3.SystemProgram.programId,
-          })
-          .signers([agent, controller])
-          .rpc()
-      )
-    );
+    for (let index = 0; index < AGENT_COUNT; index += 1) {
+      await program.methods
+        .createSession()
+        .accountsPartial({
+          agent: agents[index].agent.publicKey,
+          policy,
+          controller: controller.publicKey,
+          session: sessions[index],
+          systemProgram: web3.SystemProgram.programId,
+        })
+        .signers([agents[index].agent, controller])
+        .rpc();
+    }
     for (let index = 0; index < AGENT_COUNT; index += 1) {
       await program.methods
         .createSettlementReceipt(
@@ -200,22 +203,19 @@ gate("LEASH twenty-agent budget race gate", () => {
         .signers([controller])
         .rpc();
     }
-    await Promise.all(
-      agents.map(async ({ agent, base: agentBase }, index) =>
-        send(
-          agentBase,
-          await program.methods
-            .delegateSession(policy)
-            .accountsPartial({
-              agent: agent.publicKey,
-              session: sessions[index],
-              validator: TEE_VALIDATOR,
-            })
-            .signers([agent])
-            .transaction()
-        )
-      )
-    );
+    for (let index = 0; index < AGENT_COUNT; index += 1) {
+      await send(
+        agents[index].base,
+        await program.methods
+          .delegateSession(policy)
+          .accountsPartial({
+            agent: agents[index].agent.publicKey,
+            session: sessions[index],
+            validator: TEE_VALIDATOR,
+          })
+          .transaction()
+      );
+    }
     await program.methods
       .delegatePolicy(policyId)
       .accountsPartial({
@@ -335,8 +335,8 @@ gate("LEASH twenty-agent budget race gate", () => {
         return program.coder.accounts.decode("sessionLedger", info.data);
       })
     );
-    const reserved = ledgers.filter(
-      (ledger) => ledger.state.reserved !== undefined
+    const reserved = ledgers.filter((ledger) =>
+      hasEnumVariant(ledger.state, "reserved")
     );
     if (reserved.length !== 1)
       throw new Error(`expected one reserved session, got ${reserved.length}`);
@@ -348,8 +348,8 @@ gate("LEASH twenty-agent budget race gate", () => {
     )
       throw new Error("a losing race attempt mutated its reservation");
 
-    const loserIndex = ledgers.findIndex(
-      (ledger) => ledger.state.idle !== undefined
+    const loserIndex = ledgers.findIndex((ledger) =>
+      hasEnumVariant(ledger.state, "idle")
     );
     await mustFailWith(
       send(
@@ -376,8 +376,8 @@ gate("LEASH twenty-agent budget race gate", () => {
       "losing reservation did not return the exact budget error"
     );
 
-    const winnerIndex = ledgers.findIndex(
-      (ledger) => ledger.state.reserved !== undefined
+    const winnerIndex = ledgers.findIndex((ledger) =>
+      hasEnumVariant(ledger.state, "reserved")
     );
     const winnerReceipt = receipts[winnerIndex];
     const winnerTerminal = terminals[winnerIndex];

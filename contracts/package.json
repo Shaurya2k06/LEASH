@@ -6,12 +6,14 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "typecheck": "tsc --noEmit",
     "test:leash": "node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash.ts",
-    "test:leash:per": "LEASH_PER_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts",
-    "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
-    "test:leash:expiry": "LEASH_EXPIRY_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts",
-    "test:leash:race": "LEASH_RACE_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha -p ./tsconfig.json -t 1000000 tests/leash-race-gate.ts",
+    "test:leash:per": "LEASH_PER_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha --exit -p ./tsconfig.json -t 1000000 tests/leash-per-gate.ts",
+    "test:leash:settlement": "LEASH_SETTLEMENT_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha --exit -p ./tsconfig.json -t 1000000 tests/leash-settlement-gate.ts",
+    "test:leash:expiry": "LEASH_EXPIRY_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha --exit -p ./tsconfig.json -t 1000000 tests/leash-expiry-gate.ts",
+    "test:leash:race": "LEASH_RACE_TEST=1 node --env-file-if-exists=../.env ./node_modules/ts-mocha/bin/ts-mocha --exit -p ./tsconfig.json -t 1000000 tests/leash-race-gate.ts",
     "bench:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-benchmark.ts",
-    "demo:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-demo.ts"
+    "demo:leash": "node --env-file-if-exists=../.env ./node_modules/ts-node/dist/bin.js scripts/leash-demo.ts",
+    "demo:server": "node --env-file-if-exists=../.env scripts/leash-demo-server.js",
+    "test:demo-server": "node --test scripts/leash-demo-server.test.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",

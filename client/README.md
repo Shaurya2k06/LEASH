@@ -1,9 +1,9 @@
 # LEASH operator view
 
-This Vite app is a read-only cockpit for the LEASH devnet evidence. It polls
-the public Solana RPC for slot/program health and shows recorded attack-gate
-outcomes. It never downloads private policy/session accounts and cannot sign,
-settle, or choose an agent outcome.
+This Vite app polls public Solana health and calls the trusted demo worker for
+fresh attack-gate and lifecycle runs. It never receives signing credentials or
+private account state; only sanitized live progress and outcomes reach the
+browser.
 
 ```sh
 npm install
@@ -15,3 +15,4 @@ Optional Vite variables:
 - `VITE_SOLANA_RPC_URL`
 - `VITE_PROGRAM_ID`
 - `VITE_RELAY_URL`
+- `VITE_DEMO_API_URL`

@@ -18,29 +18,35 @@ cd client && npm run dev
 The browser routes are:
 
 - `/` — public LEASH landing page
-- `/dashboard` — operator dashboard with the clickable lifecycle replay
+- `/dashboard` — operator dashboard with live gates and lifecycle execution
 - `/demo` — redirects to `/dashboard#live-demo`
 
-The browser view only polls public program health and displays recorded gate
-outcomes. It does not fetch private policy/session accounts or sign outcomes.
+The browser polls public program health. Gate and lifecycle clicks call the
+separate demo worker and return only sanitized progress/results; the browser
+never receives the wallet, TEE authorization token, or private account state.
 
-## Publish a real end-to-end demo tape
+## Run the live end-to-end demo
 
-The demo runner uses the local Anchor wallet and TEE credentials on the trusted
-operator machine. It creates a fresh policy/session, executes one authenticated
-SPL settlement, proves privacy and replay rejection, scrubs the private state,
-and writes public transaction/account links to `client/public/demo.json`:
+The worker uses the local Anchor wallet and TEE credentials on the trusted
+operator machine. It can execute each adversarial gate or create a fresh
+policy/session, perform an authenticated SPL settlement, prove privacy and
+replay rejection, scrub private state, and stream confirmed lifecycle steps:
 
 ```sh
-cd contracts
-yarn build
-yarn demo:leash
-cd ../client && npm run lint && npm run build
+# Terminal 1
+cd contracts && yarn demo:server
+
+# Terminal 2
+cd client && npm run dev
 ```
 
-The generated artifact is safe for the browser: it contains no wallet,
-authorization token, private amount, or digest. Deploy the client after running
-the demo to publish the proof tape.
+Deploy the worker as a separate Render service with root directory `contracts`,
+build command `yarn install --frozen-lockfile`, and start command
+`yarn demo:server`. Configure `SOLANA_RPC_URL`, `MB_TEE_RPC_URL`,
+`MB_TEE_VALIDATOR`, `LEASH_PROGRAM_ID`, `ALLOWED_ORIGIN`, and
+`DEMO_COOLDOWN_MS`. Store the 64-byte wallet JSON only in Render as the secret
+`DEMO_WALLET_KEYPAIR`, then set Vercel's `VITE_DEMO_API_URL` to that service.
+Never put the wallet value in Vercel.
 
 ## Configure and validate
 
@@ -72,6 +78,7 @@ cargo test -p contracts
 yarn typecheck && yarn lint
 yarn build
 yarn test:leash
+yarn test:demo-server
 
 # Live devnet gates (after exporting the wallet and endpoints above)
 yarn test:leash:per
@@ -83,9 +90,8 @@ BENCHMARK_SAMPLES=100 yarn bench:leash
 
 The contracts pin Rust 1.89.0, Solana CLI 3.1.9, and Anchor 1.0.2. The current
 devnet binary has passed the sibling-read, settlement, expiry, and twenty-session
-race gates. The public client reads the sanitized summary at
-`client/public/evidence.json`; it does not claim to execute those TEE gates in
-the browser.
+race gates. The checked-in `client/public/evidence.json` remains historical
+audit evidence; dashboard gate buttons execute fresh runs through the worker.
 The relay only forwards allowlisted read-only JSON-RPC payloads, rate-limits
 callers, bounds request and response sizes, checks upstream health, and cannot
 sign or choose an outcome. Set `UPSTREAM_RESPONSE_BYTES` as well when deploying

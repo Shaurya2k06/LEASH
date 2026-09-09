@@ -10,7 +10,7 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import * as nacl from "tweetnacl";
 import type { Contracts } from "../target/types/contracts";
-import { requiredEnv, writeArtifact } from "./artifact.js";
+import { controllerKeypair, requiredEnv, writeArtifact } from "./artifact.js";
 
 const POLICY_SEED = "policy";
 const SESSION_SEED = "session";
@@ -89,7 +89,7 @@ gate("LEASH TEE sibling-read gate", () => {
   it("allows an agent ledger while denying a sibling", async () => {
     const baseEndpoint = requiredEnv("SOLANA_RPC_URL");
     const teeEndpoint = requiredEnv("MB_TEE_RPC_URL").replace(/\/$/, "");
-    const controller = anchor.Wallet.local().payer;
+    const controller = controllerKeypair();
     const agent = web3.Keypair.generate();
     const sibling = web3.Keypair.generate();
     const base = new anchor.AnchorProvider(
